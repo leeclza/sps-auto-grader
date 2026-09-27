@@ -1,4 +1,12 @@
-import { addMaterialFromFile, addMaterialFromUrl, deleteMaterial, relearnMaterial, updateMaterial } from "@/app/actions";
+import {
+  addMaterialFromFile,
+  addMaterialFromUrl,
+  deleteMaterial,
+  relearnFailedMaterials,
+  relearnMaterial,
+  updateMaterial,
+} from "@/app/actions";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { SubmitButton } from "@/components/SubmitButton";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -12,8 +20,13 @@ export default async function MaterialsPage() {
     include: { _count: { select: { assignments: true } }, pages: { select: { content: true } } },
   });
 
+  const processing = materials.filter((m) => m.status === "processing").length;
+  const failed = materials.filter((m) => m.status === "error").length;
+
   return (
     <>
+      <AutoRefresh active={processing > 0} />
+      <span className="eyebrow">Patokan penilaian</span>
       <h1>Materi Acuan</h1>
       <p className="sub">
         Materi yang di-upload akan dipelajari AI (diringkas & diekstrak konsep kuncinya) lalu dijadikan patokan saat
@@ -48,13 +61,24 @@ export default async function MaterialsPage() {
         </form>
       </div>
 
-      <h2>Daftar Materi ({materials.length})</h2>
-      {materials.length === 0 && <div className="card muted">Belum ada materi.</div>}
+      <div className="row">
+        <h2>Daftar Materi ({materials.length})</h2>
+        <span className="spacer" />
+        {processing > 0 && (
+          <span className="muted small">AI sedang mempelajari {processing} materi (maks. ~5 per menit)…</span>
+        )}
+        {failed > 0 && processing === 0 && (
+          <form action={relearnFailedMaterials}>
+            <SubmitButton className="btn" pendingText="...">Pelajari ulang {failed} yang error</SubmitButton>
+          </form>
+        )}
+      </div>
+      {materials.length === 0 && <div className="card muted empty">Belum ada materi.</div>}
       {materials.map((m) => {
         const concepts: string[] = m.keyConcepts ? JSON.parse(m.keyConcepts) : [];
         const chars = m.pages.reduce((s, p) => s + p.content.length, 0);
         return (
-          <div className="card" key={m.id}>
+          <div className={`card${m.status === "processing" ? " processing" : ""}`} key={m.id}>
             <div className="row">
               <span className="badge">{m.subject}{m.meeting ? ` · P${m.meeting}` : ""}</span>
               <b>{m.title}</b>
@@ -66,6 +90,12 @@ export default async function MaterialsPage() {
               {m.sourceUrl ? <a href={m.sourceUrl} target="_blank" rel="noreferrer">{m.sourceUrl}</a> : m.fileName}
             </div>
             {m.error && <div className="alert err small" style={{ marginTop: 8 }}>{m.error}</div>}
+            {m.status === "processing" && !m.summary && (
+              <>
+                <div className="skeleton" />
+                <div className="skeleton short" />
+              </>
+            )}
             {m.summary && <p style={{ marginBottom: 6 }}>{m.summary}</p>}
             {concepts.length > 0 && (
               <details>
@@ -81,7 +111,7 @@ export default async function MaterialsPage() {
               </form>
               <span className="spacer" />
               <form action={relearnMaterial.bind(null, m.id)}>
-                <SubmitButton className="btn" pendingText="Mempelajari...">Pelajari ulang</SubmitButton>
+                <SubmitButton className="btn" pendingText="...">Pelajari ulang</SubmitButton>
               </form>
               <form action={deleteMaterial.bind(null, m.id)}>
                 <SubmitButton className="btn danger" pendingText="...">Hapus</SubmitButton>

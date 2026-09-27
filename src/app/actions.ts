@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
-import { generateJson } from "@/lib/gemini";
+import { generateJson, geminiErrorMessage } from "@/lib/gemini";
 import { extractFromFile, extractFromUrl, guessMeeting, learnMaterial } from "@/lib/materials";
 import { prisma } from "@/lib/prisma";
 import { gcrProvider } from "@/lib/providers/gcr";
@@ -162,7 +163,7 @@ ${materiText || "(belum ada materi dipilih)"}`,
     );
     return { rubric: res.rubric };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
+    return { error: geminiErrorMessage(e) };
   }
 }
 
@@ -196,7 +197,7 @@ export async function addMaterialFromUrl(formData: FormData) {
       }),
     );
   }
-  await Promise.all(created.map((m) => learnMaterial(m.id)));
+  learnInBackground(created.map((m) => m.id));
   revalidatePath("/materials");
 }
 
@@ -223,7 +224,7 @@ export async function addMaterialFromFile(formData: FormData) {
       }),
     );
   }
-  await Promise.all(created.map((m) => learnMaterial(m.id)));
+  learnInBackground(created.map((m) => m.id));
   revalidatePath("/materials");
 }
 
@@ -240,10 +241,26 @@ export async function updateMaterial(materialId: string, formData: FormData) {
   revalidatePath("/materials");
 }
 
+/** Pelajari materi satu per satu setelah respons terkirim; halaman materi memantau statusnya. */
+function learnInBackground(ids: string[]) {
+  after(async () => {
+    for (const id of ids) await learnMaterial(id);
+  });
+}
+
 export async function relearnMaterial(materialId: string) {
   await requireUser();
-  await prisma.material.update({ where: { id: materialId }, data: { status: "processing" } });
-  await learnMaterial(materialId);
+  await prisma.material.update({ where: { id: materialId }, data: { status: "processing", error: null } });
+  learnInBackground([materialId]);
+  revalidatePath("/materials");
+}
+
+export async function relearnFailedMaterials() {
+  await requireUser();
+  const failed = await prisma.material.findMany({ where: { status: "error" }, select: { id: true } });
+  const ids = failed.map((m) => m.id);
+  await prisma.material.updateMany({ where: { id: { in: ids } }, data: { status: "processing", error: null } });
+  learnInBackground(ids);
   revalidatePath("/materials");
 }
 

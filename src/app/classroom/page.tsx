@@ -16,6 +16,7 @@ export default async function ClassroomPage() {
     <>
       <div className="row">
         <div>
+          <span className="eyebrow">Google Classroom</span>
           <h1>Classroom Saya</h1>
           <p className="sub">Course Google Classroom tempat Anda menjadi pengajar, akun {user.email}.</p>
         </div>
@@ -26,17 +27,19 @@ export default async function ClassroomPage() {
       </div>
 
       {courses.length === 0 ? (
-        <div className="card muted">
+        <div className="card muted empty">
           Belum ada course. Klik <b>Sinkronkan dari Google Classroom</b> untuk mengambil daftar course.
         </div>
       ) : (
         <div className="grid">
           {courses.map((c) => (
-            <div className="card" key={c.id}>
-              <h2 style={{ marginTop: 0 }}>{c.name}</h2>
+            <div className="card hover course-card" key={c.id}>
+              <h3 className="course-name">{c.name}</h3>
               <div className="muted small">{c.section || "—"}</div>
-              <div className="muted small">Kode: {c.enrollmentCode || "—"}</div>
-              <div className="muted small">{c._count.assignments} tugas di-import ke SPS</div>
+              <div className="course-meta">
+                <span className="badge mono">{c.enrollmentCode || "—"}</span>
+                <span className={`badge${c._count.assignments ? " ok" : ""}`}>{c._count.assignments} tugas di SPS</span>
+              </div>
               <div className="row" style={{ marginTop: 12 }}>
                 <Link className="btn primary" href={`/classroom/${c.id}`}>Buka</Link>
                 {c.link && <a className="btn" href={c.link} target="_blank" rel="noreferrer">Lihat di GCR ↗</a>}

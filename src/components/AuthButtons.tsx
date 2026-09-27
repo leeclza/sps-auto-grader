@@ -25,7 +25,7 @@ export function SignInButton({ label = "Masuk dengan Google" }: { label?: string
         signIn("google", { callbackUrl: "/classroom" });
       }}
     >
-      <GoogleLogo />
+      {loading ? <span className="spinner" aria-hidden="true" /> : <GoogleLogo />}
       <span>{loading ? "Mengalihkan ke Google…" : label}</span>
     </button>
   );

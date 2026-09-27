@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { generateJson } from "./gemini";
+import { generateJson, geminiErrorMessage } from "./gemini";
 import { prisma } from "./prisma";
 
 const MAX_CRAWL_PAGES = 40;
@@ -150,7 +150,7 @@ ${text}`,
     // Teks materi tetap tersimpan & tetap bisa dipakai grading walau ringkasan AI gagal.
     await prisma.material.update({
       where: { id: materialId },
-      data: { status: "error", error: e instanceof Error ? e.message : String(e) },
+      data: { status: "error", error: geminiErrorMessage(e) },
     });
   }
 }
