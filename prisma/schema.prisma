@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Auth (NextAuth) ----------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  courses       Course[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  refresh_token_expires_in Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- Sumber tugas (multi-provider) ----------
+// provider: "gcr" (Google Classroom) | "elearning" (kuliah2.itera.ac.id) | "gform" | "manual"
+
+model Course {
+  id             String       @id @default(cuid())
+  userId         String
+  provider       String       @default("gcr")
+  externalId     String
+  name           String
+  section        String?
+  enrollmentCode String?
+  teacherNames   String?
+  studentCount   Int?
+  link           String?
+  syncedAt       DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignments    Assignment[]
+
+  @@unique([userId, provider, externalId])
+}
+
+model Assignment {
+  id           String               @id @default(cuid())
+  courseId     String
+  provider     String               @default("gcr")
+  externalId   String
+  title        String
+  description  String?
+  instructions String?
+  maxScore     Float                @default(100)
+  dueDate      DateTime?
+  link         String?
+  workType     String?
+  imported     Boolean              @default(false)
+  // Rubrik disimpan sebagai JSON: [{ name, description, weight }]
+  rubric       String?
+  gradingNotes String?
+  updatedAt    DateTime             @updatedAt
+  course       Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  materials    AssignmentMaterial[]
+
+  @@unique([courseId, externalId])
+}
+
+// ---------- Materi (patokan penilaian AI) ----------
+// kind: "url" | "file" | "text"
+// status: "pending" | "processing" | "ready" | "error"
+
+model Material {
+  id          String               @id @default(cuid())
+  title       String
+  subject     String               @default("DTD")
+  meeting     Int?
+  kind        String
+  sourceUrl   String?
+  fileName    String?
+  status      String               @default("pending")
+  error       String?
+  summary     String?
+  keyConcepts String?
+  createdAt   DateTime             @default(now())
+  pages       MaterialPage[]
+  assignments AssignmentMaterial[]
+}
+
+model MaterialPage {
+  id         String   @id @default(cuid())
+  materialId String
+  url        String?
+  title      String?
+  content    String
+  order      Int      @default(0)
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+}
+
+model AssignmentMaterial {
+  assignmentId String
+  materialId   String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  material     Material   @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@id([assignmentId, materialId])
+}
