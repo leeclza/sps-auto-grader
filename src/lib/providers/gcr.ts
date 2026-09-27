@@ -28,7 +28,7 @@ export async function gcrProvider(userId: string): Promise<TaskSourceProvider> {
 
     async listCourses() {
       const courses = await paginate(async (pageToken) => {
-        const res = await classroom.courses.list({ pageToken, pageSize: 100, courseStates: ["ACTIVE"] });
+        const res = await classroom.courses.list({ pageToken, pageSize: 100, courseStates: ["ACTIVE"], teacherId: "me" });
         return { items: res.data.courses ?? [], next: res.data.nextPageToken };
       });
       return courses.map((c) => ({
@@ -37,6 +37,7 @@ export async function gcrProvider(userId: string): Promise<TaskSourceProvider> {
         section: c.section,
         enrollmentCode: c.enrollmentCode,
         link: c.alternateLink,
+        createdAt: c.creationTime ? new Date(c.creationTime) : null,
       }));
     },
 

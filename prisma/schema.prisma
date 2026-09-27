@@ -69,6 +69,7 @@ model Course {
   teacherNames   String?
   studentCount   Int?
   link           String?
+  createdAt      DateTime?
   syncedAt       DateTime     @default(now())
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   assignments    Assignment[]

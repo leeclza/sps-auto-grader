@@ -8,7 +8,7 @@ export default async function ClassroomPage() {
   const user = await requireUser();
   const courses = await prisma.course.findMany({
     where: { userId: user.id, provider: "gcr" },
-    orderBy: { name: "asc" },
+    orderBy: [{ createdAt: { sort: "desc", nulls: "last" } }, { name: "asc" }],
     include: { _count: { select: { assignments: { where: { imported: true } } } } },
   });
 
@@ -17,7 +17,7 @@ export default async function ClassroomPage() {
       <div className="row">
         <div>
           <h1>Classroom Saya</h1>
-          <p className="sub">Course Google Classroom yang dapat diakses akun {user.email}.</p>
+          <p className="sub">Course Google Classroom tempat Anda menjadi pengajar, akun {user.email}.</p>
         </div>
         <span className="spacer" />
         <form action={syncCourses}>

@@ -9,6 +9,7 @@ export interface SourceCourse {
   section?: string | null;
   enrollmentCode?: string | null;
   link?: string | null;
+  createdAt?: Date | null;
 }
 
 export interface SourceCourseDetail extends SourceCourse {

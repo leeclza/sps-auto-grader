@@ -27,13 +27,17 @@ export async function syncCourses() {
   const provider = await gcrProvider(user.id);
   const courses = await provider.listCourses();
   for (const c of courses) {
-    const data = { name: c.name, section: c.section, enrollmentCode: c.enrollmentCode, link: c.link, syncedAt: new Date() };
+    const data = { name: c.name, section: c.section, enrollmentCode: c.enrollmentCode, link: c.link, createdAt: c.createdAt, syncedAt: new Date() };
     await prisma.course.upsert({
       where: { userId_provider_externalId: { userId: user.id, provider: "gcr", externalId: c.externalId } },
       create: { userId: user.id, provider: "gcr", externalId: c.externalId, ...data },
       update: data,
     });
   }
+  // Hapus course yang tidak lagi diajar akun ini (mis. hasil sinkron lama sebagai siswa).
+  await prisma.course.deleteMany({
+    where: { userId: user.id, provider: "gcr", externalId: { notIn: courses.map((c) => c.externalId) } },
+  });
   revalidatePath("/classroom");
 }
 
