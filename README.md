@@ -15,6 +15,30 @@ Google Classroom ──► Daftar tugas ──► Submission mahasiswa ──►
 
 ---
 
+## Ringkasan Singkat
+
+**Apa ini?** Web app untuk menilai tugas mahasiswa otomatis dengan Gemini AI, berbasis materi kuliah & rubrik, dengan sumber tugas dari Google Classroom dan rekap nilai ke spreadsheet SPS.
+
+**SKPL singkat:**
+- **Input:** kelas/tugas/submission dari Google Classroom (read-only) + materi acuan + rubrik.
+- **Proses:** Gemini meringkas materi, menyusun rubrik, dan menilai submission.
+- **Output:** nilai + feedback yang ditinjau asisten, lalu diekspor ke Google Sheets SPS.
+- **Batasan:** akses Classroom hanya-baca, login terbatas email di `ALLOWED_EMAILS`, tidak menyimpan password. Detail lengkap ada di [bagian SKPL](#spesifikasi-kebutuhan-perangkat-lunak-skpl) di bawah.
+
+**Setup singkat:**
+
+```bash
+git clone <url-repo> && cd sps-auto-grader
+npm install
+cp .env.example .env     # isi DATABASE_URL, NEXTAUTH_*, GOOGLE_*, GEMINI_*, ALLOWED_EMAILS
+npx prisma db push
+npm run dev              # http://localhost:3000
+```
+
+Butuh: Node.js 20+, OAuth client Google (Classroom API aktif, status *Testing* + test user), dan Gemini API key. Langkah rinci di [Menjalankan secara lokal](#menjalankan-secara-lokal) & [Setup Google Cloud](#setup-google-cloud).
+
+---
+
 ## Spesifikasi Kebutuhan Perangkat Lunak (SKPL)
 
 ### 1. Pendahuluan
