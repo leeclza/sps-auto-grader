@@ -1,6 +1,8 @@
 import * as cheerio from "cheerio";
 import { generateJson, geminiErrorMessage } from "./gemini";
-import { prisma } from "./prisma";
+import { asc, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { materialPages, materials } from "@/db/schema";
 
 const MAX_CRAWL_PAGES = 40;
 
@@ -98,8 +100,9 @@ export async function extractFromUrl(startUrl: string, crawl: boolean): Promise<
 }
 
 async function extractPdf(buf: Buffer) {
-  const pdfParse = (await import("pdf-parse")).default;
-  return (await pdfParse(buf)).text.trim();
+  const { extractText, getDocumentProxy } = await import("unpdf");
+  const { text } = await extractText(await getDocumentProxy(new Uint8Array(buf)), { mergePages: true });
+  return text.trim();
 }
 
 export async function extractFromFile(file: File): Promise<string> {
@@ -121,10 +124,11 @@ export async function extractFromFile(file: File): Promise<string> {
  * Teks lengkap tetap disimpan di MaterialPage dan ikut dikirim saat grading.
  */
 export async function learnMaterial(materialId: string) {
-  const material = await prisma.material.findUniqueOrThrow({
-    where: { id: materialId },
-    include: { pages: { orderBy: { order: "asc" } } },
+  const material = await db.query.materials.findFirst({
+    where: eq(materials.id, materialId),
+    with: { pages: { orderBy: asc(materialPages.order) } },
   });
+  if (!material) throw new Error(`Materi ${materialId} tidak ditemukan`);
   const text = material.pages.map((p) => `## ${p.title ?? ""}\n${p.content}`).join("\n\n").slice(0, 200_000);
   try {
     const result = await generateJson<{ summary: string; keyConcepts: string[] }>(
@@ -137,20 +141,17 @@ Judul materi: ${material.title}
 MATERI:
 ${text}`,
     );
-    await prisma.material.update({
-      where: { id: materialId },
-      data: {
+    await db
+      .update(materials)
+      .set({
         status: "ready",
         error: null,
         summary: result.summary,
         keyConcepts: JSON.stringify(result.keyConcepts ?? []),
-      },
-    });
+      })
+      .where(eq(materials.id, materialId));
   } catch (e) {
     // Teks materi tetap tersimpan & tetap bisa dipakai grading walau ringkasan AI gagal.
-    await prisma.material.update({
-      where: { id: materialId },
-      data: { status: "error", error: geminiErrorMessage(e) },
-    });
+    await db.update(materials).set({ status: "error", error: geminiErrorMessage(e) }).where(eq(materials.id, materialId));
   }
 }

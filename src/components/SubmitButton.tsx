@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 export function SubmitButton({
   children,
   pendingText = "Memproses...",
-  className = "btn primary",
+  className = "btn btn-primary",
   name,
   value,
 }: {

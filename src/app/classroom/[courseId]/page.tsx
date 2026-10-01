@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { importAssignments, setImported, syncCourse } from "@/app/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { db } from "@/db";
+import { assignments, courses } from "@/db/schema";
 import { parseRubric } from "@/lib/rubric";
 
 export default async function CoursePage({
@@ -16,12 +18,12 @@ export default async function CoursePage({
   const user = await requireUser();
   const { courseId } = await params;
   const { saved } = await searchParams;
-  const course = await prisma.course.findFirst({
-    where: { id: courseId, userId: user.id },
-    include: {
+  const course = await db.query.courses.findFirst({
+    where: and(eq(courses.id, courseId), eq(courses.userId, user.id)),
+    with: {
       assignments: {
-        orderBy: [{ dueDate: "desc" }, { title: "asc" }],
-        include: { materials: { include: { material: true } } },
+        orderBy: [sql`${assignments.dueDate} desc nulls last`, asc(assignments.title)],
+        with: { materials: { with: { material: true } } },
       },
     },
   });
@@ -30,18 +32,18 @@ export default async function CoursePage({
 
   return (
     <>
-      <p className="small"><Link href="/classroom">← Classroom Saya</Link></p>
-      <div className="card">
-        <div className="row">
+      <p className="mb-4 text-[13px]"><Link href="/classroom">← Classroom Saya</Link></p>
+      <div className="card mb-3.5">
+        <div className="flex flex-wrap items-center gap-3">
           <h1>{course.name}</h1>
-          <span className="spacer" />
+          <span className="flex-1" />
           <form action={syncCourse.bind(null, course.id)}>
             <SubmitButton pendingText="Menyinkronkan...">
               {neverSynced ? "Ambil tugas dari GCR" : "Sinkronkan ulang"}
             </SubmitButton>
           </form>
         </div>
-        <table style={{ marginTop: 8 }}>
+        <table className="mt-2 w-full border-collapse">
           <tbody>
             <tr><th>Nama Course</th><td>{course.name}{course.section ? ` — ${course.section}` : ""}</td></tr>
             <tr><th>Kode Course</th><td>{course.enrollmentCode || "—"}</td></tr>
@@ -52,20 +54,20 @@ export default async function CoursePage({
         </table>
       </div>
 
-      {saved && <div className="alert ok">Setup tugas tersimpan.</div>}
+      {saved && <div className="alert alert-ok">Setup tugas tersimpan.</div>}
 
       <h2>Daftar Tugas</h2>
       {course.assignments.length === 0 ? (
-        <div className="card muted">
+        <div className="card text-muted">
           {neverSynced ? "Klik “Ambil tugas dari GCR” untuk menarik daftar tugas." : "Tidak ada tugas di course ini."}
         </div>
       ) : (
         <form action={importAssignments.bind(null, course.id)}>
-          <div className="table-wrap">
-            <table>
+          <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm">
+            <table className="w-full border-collapse">
               <thead>
                 <tr>
-                  <th style={{ width: 32 }}></th>
+                  <th className="w-8"></th>
                   <th>Tugas GCR</th>
                   <th>Status</th>
                   <th>Materi</th>
@@ -81,7 +83,7 @@ export default async function CoursePage({
                       <td>{!a.imported && <input type="checkbox" name="assignmentId" value={a.id} />}</td>
                       <td>
                         <div>{a.title}</div>
-                        <div className="muted small">
+                        <div className="text-[13px] text-muted">
                           Maks {a.maxScore} · {a.dueDate ? `Tenggat ${a.dueDate.toLocaleDateString("id-ID")}` : "Tanpa tenggat"}
                           {a.link && <> · <a href={a.link} target="_blank" rel="noreferrer">GCR ↗</a></>}
                         </div>
@@ -90,22 +92,22 @@ export default async function CoursePage({
                         {!a.imported ? (
                           <span className="badge">Belum di-import</span>
                         ) : ready ? (
-                          <span className="badge ok">Siap dinilai</span>
+                          <span className="badge badge-ok">Siap dinilai</span>
                         ) : (
-                          <span className="badge warn">Imported</span>
+                          <span className="badge badge-warn">Imported</span>
                         )}
                       </td>
-                      <td className="small">
+                      <td className="text-[13px]">
                         {a.materials.length
                           ? a.materials.map((m) => (m.material.meeting ? `P${m.material.meeting}` : m.material.title)).join(", ")
-                          : <span className="muted">Belum dipilih</span>}
-                        {a.imported && !hasRubric && <div className="muted">Rubrik belum dibuat</div>}
+                          : <span className="text-muted">Belum dipilih</span>}
+                        {a.imported && !hasRubric && <div className="text-muted">Rubrik belum dibuat</div>}
                       </td>
                       <td>
-                        <div className="row">
+                        <div className="flex flex-wrap items-center gap-3">
                           <Link className="btn" href={`/assignments/${a.id}/setup`}>Setup</Link>
                           {a.imported && (
-                            <button className="btn danger" formAction={setImported.bind(null, a.id, false)}>
+                            <button className="btn btn-danger" formAction={setImported.bind(null, a.id, false)}>
                               Keluarkan
                             </button>
                           )}
@@ -118,9 +120,9 @@ export default async function CoursePage({
             </table>
           </div>
           {course.assignments.some((a) => !a.imported) && (
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
               <SubmitButton pendingText="Mengimpor...">Import ke SPS</SubmitButton>
-              <span className="muted small">Centang tugas yang ingin dinilai oleh SPS.</span>
+              <span className="text-[13px] text-muted">Centang tugas yang ingin dinilai oleh SPS.</span>
             </div>
           )}
         </form>

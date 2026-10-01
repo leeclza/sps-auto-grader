@@ -18,14 +18,14 @@ export function SignInButton({ label = "Masuk dengan Google" }: { label?: string
   const [loading, setLoading] = useState(false);
   return (
     <button
-      className="btn-google"
+      className="inline-flex h-[46px] w-full cursor-pointer items-center justify-center gap-3 rounded-full border border-[#747775] bg-white px-4 text-[14.5px] font-medium text-[#1f1f1f] transition duration-200 ease-out-soft hover:bg-[#f8f9fa] hover:shadow-[0_4px_14px_-4px_rgba(0,0,0,0.25)] active:scale-[0.98] disabled:cursor-progress disabled:opacity-75 dark:border-[#8e918f] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1f1f20]"
       disabled={loading}
       onClick={() => {
         setLoading(true);
         signIn("google", { callbackUrl: "/classroom" });
       }}
     >
-      {loading ? <span className="spinner" aria-hidden="true" /> : <GoogleLogo />}
+      {loading ? <span className="spinner text-[#1a73e8]" aria-hidden="true" /> : <GoogleLogo />}
       <span>{loading ? "Mengalihkan ke Google…" : label}</span>
     </button>
   );

@@ -31,7 +31,7 @@ Google Classroom ──► Daftar tugas ──► Submission mahasiswa ──►
 git clone <url-repo> && cd sps-auto-grader
 npm install
 cp .env.example .env     # isi DATABASE_URL, NEXTAUTH_*, GOOGLE_*, GEMINI_*, ALLOWED_EMAILS
-npx prisma db push
+npm run db:push          # buat/sinkron tabel di Neon
 npm run dev              # http://localhost:3000
 ```
 
@@ -77,8 +77,8 @@ Gemini API. Data disimpan di database lokal milik aplikasi.
 | Asisten / pemilik | Pengguna tunggal yang emailnya terdaftar di `ALLOWED_EMAILS` | Semua fitur |
 | Pengguna lain | Siapa pun di luar daftar | Ditolak saat login |
 
-**2.3 Lingkungan operasi.** Browser modern; server Node.js 20+ (lokal atau Vercel); database SQLite
-(pengembangan) atau PostgreSQL (produksi).
+**2.3 Lingkungan operasi.** Browser modern; server Node.js 20+ (lokal atau Vercel); database PostgreSQL
+(Neon).
 
 **2.4 Batasan.**
 - Akses Google Classroom bersifat *read-only* (OAuth scope `*.readonly`).
@@ -142,15 +142,16 @@ User ─┬─ Account / Session          (NextAuth)
 
 ## Teknologi
 
-Next.js 15 (App Router, Server Actions) · React 19 · TypeScript · NextAuth v4 · Prisma ·
-Google Classroom API (`googleapis`) · Gemini (`@google/genai`) · cheerio, pdf-parse, mammoth (ekstraksi materi).
+Next.js 15 (App Router, Server Actions) · React 19 · TypeScript · Tailwind CSS v4 · NextAuth v4 · Drizzle ORM ·
+Neon Postgres (`@neondatabase/serverless`) · Google Classroom API (`@googleapis/classroom`, `google-auth-library`) ·
+Gemini (`@google/genai`) · cheerio, unpdf, mammoth (ekstraksi materi).
 
 ## Menjalankan secara lokal
 
 ```bash
 npm install
 cp .env.example .env     # lalu isi nilainya
-npx prisma db push
+npm run db:push          # buat/sinkron tabel di Neon
 npm run dev              # http://localhost:3000
 ```
 
@@ -158,7 +159,7 @@ Isi `.env`:
 
 | Variabel | Keterangan |
 |---|---|
-| `DATABASE_URL` | `file:./dev.db` (SQLite) atau connection string PostgreSQL |
+| `DATABASE_URL` | Connection string Neon (`postgresql://...?sslmode=require`) |
 | `NEXTAUTH_URL` | `http://localhost:3000` (produksi: URL Vercel) |
 | `NEXTAUTH_SECRET` | String acak, misalnya dari `openssl rand -base64 32` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth client dari Google Cloud |
@@ -181,8 +182,7 @@ Saat login akan muncul "Google hasn't verified this app". Itu normal untuk app b
 
 ## Deploy ke Vercel
 
-1. Ganti database ke PostgreSQL (mis. Neon): di `prisma/schema.prisma` ubah `provider = "postgresql"`.
-   SQLite tidak bisa dipakai di Vercel.
+1. Buat database di Neon, isi `DATABASE_URL`, lalu jalankan `npm run db:push` sekali.
 2. Import repo di Vercel, lalu isi semua environment variable di atas (`NEXTAUTH_URL` = URL Vercel).
 3. Di OAuth client Google, tambahkan origin `https://<app>.vercel.app` dan redirect URI
    `https://<app>.vercel.app/api/auth/callback/google`.
@@ -197,4 +197,4 @@ Saat login akan muncul "Google hasn't verified this app". Itu normal untuk app b
 | `src/lib/providers/` | Kontrak `TaskSourceProvider` + implementasi Google Classroom (`gcr.ts`) |
 | `src/lib/materials.ts` | Ekstraksi materi (URL/crawl/file) dan pemrosesan oleh Gemini |
 | `src/lib/gemini.ts`, `rubric.ts` | Klien Gemini dan pembuatan rubrik |
-| `prisma/schema.prisma` | Skema database |
+| `src/db/schema.ts` | Skema database (Drizzle) |

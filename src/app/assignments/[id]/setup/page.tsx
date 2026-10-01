@@ -1,29 +1,37 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { asc, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { assignments, materials as materialsT } from "@/db/schema";
 import { DEFAULT_RUBRIC, parseRubric } from "@/lib/rubric";
 import { SetupForm } from "./SetupForm";
 
 export default async function SetupPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
-  const assignment = await prisma.assignment.findFirst({
-    where: { id, course: { userId: user.id } },
-    include: { course: true, materials: true },
+  const assignment = await db.query.assignments.findFirst({
+    where: eq(assignments.id, id),
+    with: { course: true, materials: true },
   });
-  if (!assignment) notFound();
-  const materials = await prisma.material.findMany({
-    orderBy: [{ subject: "asc" }, { meeting: "asc" }, { title: "asc" }],
-    select: { id: true, title: true, subject: true, meeting: true, status: true },
-  });
+  if (!assignment || assignment.course.userId !== user.id) notFound();
+  const materials = await db
+    .select({
+      id: materialsT.id,
+      title: materialsT.title,
+      subject: materialsT.subject,
+      meeting: materialsT.meeting,
+      status: materialsT.status,
+    })
+    .from(materialsT)
+    .orderBy(asc(materialsT.subject), asc(materialsT.meeting), asc(materialsT.title));
   const rubric = parseRubric(assignment.rubric);
 
   return (
     <>
-      <p className="small"><Link href={`/classroom/${assignment.courseId}`}>← {assignment.course.name}</Link></p>
+      <p className="mb-4 text-[13px]"><Link href={`/classroom/${assignment.courseId}`}>← {assignment.course.name}</Link></p>
       <h1>Setup Tugas</h1>
-      <p className="sub">
+      <p className="mb-6.5 max-w-[68ch] text-muted">
         Atur dasar penilaian sebelum grading.
         {assignment.link && <> Sumber: <a href={assignment.link} target="_blank" rel="noreferrer">Google Classroom ↗</a></>}
       </p>

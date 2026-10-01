@@ -5,7 +5,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["pdf-parse", "mammoth"],
+  serverExternalPackages: ["unpdf", "mammoth"],
   experimental: { serverActions: { bodySizeLimit: "20mb" } },
   webpack(config) {
     // Alias eksplisit: resolusi "paths" tsconfig kadang gagal di Windows (path dengan spasi).

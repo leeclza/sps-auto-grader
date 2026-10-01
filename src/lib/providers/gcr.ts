@@ -1,4 +1,4 @@
-import { google, type classroom_v1 } from "googleapis";
+import { classroom as classroomApi, type classroom_v1 } from "@googleapis/classroom";
 import { getGoogleAuth } from "../google";
 import type { SourceAssignment, SourceCourseDetail, TaskSourceProvider } from "./types";
 
@@ -20,7 +20,7 @@ function toDate(d?: classroom_v1.Schema$Date, t?: classroom_v1.Schema$TimeOfDay)
 
 /** Google Classroom lewat API resmi (OAuth, read-only) — tanpa scraping. */
 export async function gcrProvider(userId: string): Promise<TaskSourceProvider> {
-  const classroom = google.classroom({ version: "v1", auth: await getGoogleAuth(userId) });
+  const classroom = classroomApi({ version: "v1", auth: await getGoogleAuth(userId) });
 
   return {
     id: "gcr",

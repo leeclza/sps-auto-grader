@@ -58,43 +58,43 @@ export function SetupForm({
 
   return (
     <form action={saveAssignmentSetup.bind(null, assignment.id)}>
-      <div className="card">
+      <div className="card mb-3.5">
         <label htmlFor="title">Nama Tugas</label>
         <input id="title" name="title" type="text" defaultValue={assignment.title} required />
 
-        <label htmlFor="description">Deskripsi <span className="muted small">(diambil dari GCR)</span></label>
+        <label htmlFor="description">Deskripsi <span className="text-[13px] font-normal text-muted">(diambil dari GCR)</span></label>
         <textarea id="description" name="description" defaultValue={assignment.description} />
 
-        <label htmlFor="instructions">Instruksi <span className="muted small">(dipakai AI sebagai soal)</span></label>
+        <label htmlFor="instructions">Instruksi <span className="text-[13px] font-normal text-muted">(dipakai AI sebagai soal)</span></label>
         <textarea
           id="instructions"
           name="instructions"
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
-          style={{ minHeight: 140 }}
+          className="min-h-[140px]"
         />
 
         <label htmlFor="maxScore">Max Score</label>
-        <input id="maxScore" name="maxScore" type="number" min={1} step="any" defaultValue={assignment.maxScore} style={{ maxWidth: 160 }} />
+        <input id="maxScore" name="maxScore" type="number" min={1} step="any" defaultValue={assignment.maxScore} className="max-w-40" />
       </div>
 
-      <div className="card">
-        <div className="row">
-          <h2 style={{ margin: 0 }}>Materi Acuan</h2>
-          <span className="spacer" />
-          <Link href="/materials" className="small">+ Tambah materi</Link>
+      <div className="card mb-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="m-0">Materi Acuan</h2>
+          <span className="flex-1" />
+          <Link href="/materials" className="text-[13px]">+ Tambah materi</Link>
         </div>
-        <p className="muted small">AI hanya menilai berdasarkan materi yang dicentang.</p>
-        {materials.length === 0 && <p className="muted">Belum ada materi. Upload dulu di halaman Materi.</p>}
+        <p className="mt-2 text-[13px] text-muted">AI hanya menilai berdasarkan materi yang dicentang.</p>
+        {materials.length === 0 && <p className="text-muted">Belum ada materi. Upload dulu di halaman Materi.</p>}
         {Object.entries(bySubject).map(([subject, items]) => (
           <div key={subject}>
-            <div className="small muted" style={{ marginTop: 8, fontWeight: 600 }}>{subject}</div>
+            <div className="mt-2 text-[13px] font-semibold text-muted">{subject}</div>
             {items.map((m) => (
-              <label className="check" key={m.id}>
-                <input type="checkbox" name="materialId" value={m.id} checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
+              <label className="my-2.5 flex cursor-pointer items-start gap-2.5 font-normal text-ink" key={m.id}>
+                <input type="checkbox" name="materialId" value={m.id} checked={selected.has(m.id)} onChange={() => toggle(m.id)} className="mt-[3px] flex-none" />
                 <span>
                   {m.meeting ? <b>Pertemuan {m.meeting}</b> : null} {m.title}
-                  {m.status !== "ready" && <span className="badge warn" style={{ marginLeft: 6 }}>{m.status}</span>}
+                  {m.status !== "ready" && <span className="badge badge-warn ml-1.5">{m.status}</span>}
                 </span>
               </label>
             ))}
@@ -102,23 +102,23 @@ export function SetupForm({
         ))}
       </div>
 
-      <div className="card">
-        <div className="row">
-          <h2 style={{ margin: 0 }}>Rubrik</h2>
-          <span className={`badge ${totalWeight === 100 ? "ok" : "warn"}`}>Total bobot {totalWeight}%</span>
-          <span className="spacer" />
+      <div className="card mb-3.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="m-0">Rubrik</h2>
+          <span className={`badge ${totalWeight === 100 ? "badge-ok" : "badge-warn"}`}>Total bobot {totalWeight}%</span>
+          <span className="flex-1" />
           <button type="button" className="btn" onClick={aiRubric} disabled={generating}>
             {generating ? "Membuat rubrik..." : "✨ Buat dengan AI"}
           </button>
         </div>
-        {aiError && <div className="alert err" style={{ marginTop: 12 }}>{aiError}</div>}
-        <div style={{ marginTop: 12 }}>
+        {aiError && <div className="alert alert-err mt-3">{aiError}</div>}
+        <div className="mt-3">
           {rubric.map((c, i) => (
-            <div className="rubric-row" key={i}>
+            <div className="mb-2 grid animate-[rise_0.3s_var(--ease-out-soft)_both] grid-cols-1 gap-2 md:grid-cols-[1.2fr_2fr_90px_auto]" key={i}>
               <input type="text" placeholder="Kriteria" value={c.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
               <input type="text" placeholder="Indikator / deskripsi" value={c.description} onChange={(e) => updateRow(i, { description: e.target.value })} />
               <input type="number" min={0} max={100} value={c.weight} onChange={(e) => updateRow(i, { weight: Number(e.target.value) })} aria-label="Bobot (%)" />
-              <button type="button" className="btn danger" onClick={() => setRubric((r) => r.filter((_, j) => j !== i))}>Hapus</button>
+              <button type="button" className="btn btn-danger" onClick={() => setRubric((r) => r.filter((_, j) => j !== i))}>Hapus</button>
             </div>
           ))}
         </div>
@@ -127,7 +127,7 @@ export function SetupForm({
         </button>
         <input type="hidden" name="rubric" value={JSON.stringify(rubric)} />
 
-        <label htmlFor="gradingNotes">Catatan untuk AI <span className="muted small">(opsional)</span></label>
+        <label htmlFor="gradingNotes">Catatan untuk AI <span className="text-[13px] font-normal text-muted">(opsional)</span></label>
         <textarea
           id="gradingNotes"
           name="gradingNotes"

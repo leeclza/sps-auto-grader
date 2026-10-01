@@ -1,8 +1,10 @@
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import { and, eq } from "drizzle-orm";
 import { getServerSession, type NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { redirect } from "next/navigation";
-import { prisma } from "./prisma";
+import { db } from "@/db";
+import { accounts } from "@/db/schema";
+import { DrizzleAdapter } from "./auth-adapter";
 
 // Scope read-only Google Classroom. Sheets/Drive ditambahkan saat modul spreadsheet dibuat.
 export const GOOGLE_SCOPES = [
@@ -26,7 +28,7 @@ export function isAllowedEmail(email?: string | null) {
 }
 
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+  adapter: DrizzleAdapter(),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -46,16 +48,16 @@ export const authOptions: NextAuthOptions = {
     // saat login ulang, perbarui token & scope agar tetap valid.
     async signIn({ account }) {
       if (!account) return;
-      await prisma.account.updateMany({
-        where: { provider: account.provider, providerAccountId: account.providerAccountId },
-        data: {
+      await db
+        .update(accounts)
+        .set({
           access_token: account.access_token,
           expires_at: account.expires_at,
           scope: account.scope,
           id_token: account.id_token,
           ...(account.refresh_token ? { refresh_token: account.refresh_token } : {}),
-        },
-      });
+        })
+        .where(and(eq(accounts.provider, account.provider), eq(accounts.providerAccountId, account.providerAccountId)));
     },
   },
   callbacks: {
