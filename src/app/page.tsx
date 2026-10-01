@@ -55,7 +55,10 @@ export default async function Home() {
     { n: 3, title: "Import tugas dari GCR ke SPS", done: imported > 0, href: "/classroom" },
     { n: 4, title: "Setup tugas: pilih materi & rubrik", done: ready > 0, href: "/classroom" },
   ];
-  const doneCount = steps.filter((s) => s.done).length;
+  // Langkah harus berurutan: semua langkah setelah langkah pertama yang belum selesai dikunci.
+  const firstOpen = steps.findIndex((s) => !s.done);
+  const flow = steps.map((s, i) => ({ ...s, locked: firstOpen !== -1 && i > firstOpen, done: s.done && (firstOpen === -1 || i < firstOpen) }));
+  const doneCount = flow.filter((s) => s.done).length;
   const firstName = (user.name ?? "").split(" ")[0];
 
   return (
@@ -92,12 +95,9 @@ export default async function Home() {
         <span className="badge font-mono">{doneCount}/{steps.length} selesai</span>
       </div>
       <ol className="stagger grid gap-2.5">
-        {steps.map((s) => (
-          <li key={s.n}>
-            <Link
-              href={s.href}
-              className="group flex items-center gap-4 rounded-card border border-line bg-surface px-[18px] py-3.5 text-inherit shadow-sm transition duration-300 ease-out-soft hover:translate-x-1 hover:border-line-strong hover:text-inherit hover:shadow-md"
-            >
+        {flow.map((s) => {
+          const inner = (
+            <>
               <span
                 className={`grid size-[34px] flex-none place-items-center rounded-full font-mono text-sm ${
                   s.done ? "animate-pop bg-ok-bg text-ok" : "border-[1.5px] border-dashed border-line-strong text-muted"
@@ -105,18 +105,39 @@ export default async function Home() {
               >
                 {s.done ? <Check /> : s.n}
               </span>
-              <span
-                className={`font-medium ${s.done ? "text-muted line-through decoration-line-strong" : ""}`}
-              >
-                {s.title}
+              <span className="min-w-0">
+                <span className={`block font-medium ${s.done ? "text-muted line-through decoration-line-strong" : ""}`}>
+                  {s.title}
+                </span>
+                {s.locked && <span className="block text-[13px] text-muted">Selesaikan langkah {s.n - 1} dulu</span>}
               </span>
               <span className="flex-1" />
-              <span className="text-muted transition duration-300 ease-out-soft group-hover:translate-x-1 group-hover:text-primary">
-                →
+              <span
+                className={`text-muted transition duration-300 ease-out-soft ${s.locked ? "" : "group-hover:translate-x-1 group-hover:text-primary"}`}
+                aria-hidden="true"
+              >
+                {s.locked ? "🔒" : "→"}
               </span>
-            </Link>
-          </li>
-        ))}
+            </>
+          );
+          const base = "group flex items-center gap-4 rounded-card border border-line bg-surface px-[18px] py-3.5 text-inherit shadow-sm";
+          return (
+            <li key={s.n}>
+              {s.locked ? (
+                <div aria-disabled="true" className={`${base} cursor-not-allowed opacity-50`}>
+                  {inner}
+                </div>
+              ) : (
+                <Link
+                  href={s.href}
+                  className={`${base} transition duration-300 ease-out-soft hover:translate-x-1 hover:border-line-strong hover:text-inherit hover:shadow-md`}
+                >
+                  {inner}
+                </Link>
+              )}
+            </li>
+          );
+        })}
       </ol>
     </>
   );

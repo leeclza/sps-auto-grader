@@ -27,9 +27,15 @@ async function ownedAssignment(userId: string, assignmentId: string) {
   return a;
 }
 
+/** Materi baru boleh ditambah setelah minimal satu course GCR (sebagai pengajar) tersinkron. */
+async function requireSyncedCourse(userId: string) {
+  const c = await db.query.courses.findFirst({ where: eq(courses.userId, userId), columns: { id: true } });
+  if (!c) throw new Error("Sinkronkan Google Classroom (akun pengajar) dulu sebelum menambah materi.");
+}
+
 // ---------- Google Classroom ----------
 
-export type SyncResult = { ok: boolean; message: string; at: number };
+export type SyncResult = { tone: "ok" | "warn" | "err"; message: string; at: number };
 
 export async function syncCourses(): Promise<SyncResult> {
   const user = await requireUser();
@@ -56,15 +62,15 @@ export async function syncCourses(): Promise<SyncResult> {
       );
     revalidatePath("/classroom");
     return {
-      ok: true,
+      tone: list.length ? "ok" : "warn",
       message: list.length
         ? `Sinkron berhasil: ${list.length} course ditemukan.`
-        : "Sinkron berhasil, tapi tidak ada course yang Anda ajar di akun ini.",
+        : "Tidak ada course. Gunakan akun pengajar, bukan siswa.",
       at: Date.now(),
     };
   } catch (e) {
     console.error("syncCourses gagal:", e);
-    return { ok: false, message: `Sinkron gagal: ${e instanceof Error ? e.message : String(e)}`, at: Date.now() };
+    return { tone: "err", message: `Sinkron gagal: ${e instanceof Error ? e.message : String(e)}`, at: Date.now() };
   }
 }
 
@@ -203,7 +209,8 @@ ${materiText || "(belum ada materi dipilih)"}`,
 // ---------- Materi ----------
 
 export async function addMaterialFromUrl(formData: FormData) {
-  await requireUser();
+  const user = await requireUser();
+  await requireSyncedCourse(user.id);
   const url = String(formData.get("url") ?? "").trim();
   const subject = String(formData.get("subject") ?? "DTD").trim() || "DTD";
   const crawl = formData.get("crawl") === "on";
@@ -234,7 +241,8 @@ export async function addMaterialFromUrl(formData: FormData) {
 }
 
 export async function addMaterialFromFile(formData: FormData) {
-  await requireUser();
+  const user = await requireUser();
+  await requireSyncedCourse(user.id);
   const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   const subject = String(formData.get("subject") ?? "DTD").trim() || "DTD";
   const meetingInput = Number(formData.get("meeting"));

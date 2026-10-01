@@ -9,14 +9,32 @@ import {
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { SubmitButton } from "@/components/SubmitButton";
 import { requireUser } from "@/lib/auth";
-import { asc, count } from "drizzle-orm";
+import Link from "next/link";
+import { asc, count, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { assignmentMaterials, materials as materialsT } from "@/db/schema";
+import { assignmentMaterials, courses, materials as materialsT } from "@/db/schema";
 
 const STATUS: Record<string, string> = { ready: "badge-ok", processing: "badge-warn", pending: "", error: "badge-err" };
 
 export default async function MaterialsPage() {
-  await requireUser();
+  const user = await requireUser();
+  const hasCourse = await db.query.courses.findFirst({ where: eq(courses.userId, user.id), columns: { id: true } });
+  if (!hasCourse) {
+    return (
+      <>
+        <span className="eyebrow">Patokan penilaian</span>
+        <h1>Materi Acuan</h1>
+        <div className="card border-dashed px-5 py-10 text-center text-muted shadow-none">
+          <div className="mb-2 text-2xl" aria-hidden="true">🔒</div>
+          <p className="mx-auto mb-4 max-w-[52ch]">
+            Selesaikan langkah 1 dulu: sinkronkan Google Classroom dengan akun <b>pengajar (teacher)</b>. Akun siswa
+            tidak bisa dipakai.
+          </p>
+          <Link className="btn btn-primary" href="/classroom">Ke Google Classroom</Link>
+        </div>
+      </>
+    );
+  }
   const [rows, usage] = await Promise.all([
     db.query.materials.findMany({
       orderBy: [asc(materialsT.subject), asc(materialsT.meeting), asc(materialsT.createdAt)],
