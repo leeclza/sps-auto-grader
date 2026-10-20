@@ -18,18 +18,14 @@ export function SpsRecap({
   courseName,
   assignments,
   submissions,
-  meetings,
 }: {
   courseName: string;
   assignments: Assignment[];
   submissions: Submission[];
-  /** Nomor pertemuan materi acuan per tugas. */
-  meetings: Record<string, number[]>;
 }) {
   if (assignments.length === 0) return null;
 
-  const allMeetings = [...new Set(assignments.flatMap((a) => meetings[a.id] ?? []))].sort((x, y) => x - y);
-  const meetingLabel = allMeetings.length ? `Pertemuan ${allMeetings.join(", ")}` : "";
+  const taskLabel = assignments.map((a) => a.title).join(", ");
 
   const cols = assignments.map((a) => ({ a, rubric: parseRubric(a.rubric) }));
   const students = new Map<string, { name: string; email: string | null }>();
@@ -78,14 +74,14 @@ export function SpsRecap({
     <section className="mt-8">
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <div>
-          <h2 className="m-0">Rekap Nilai SPS{meetingLabel && ` — Tugas ${meetingLabel}`}</h2>
+          <h2 className="m-0">Rekap Nilai SPS — {taskLabel}</h2>
           <div className="text-[13px] text-muted">{courseName}</div>
         </div>
         <span className="flex-1" />
         {rows.length > 0 && (
           <DownloadCsvButton
             rows={csvRows}
-            filename={`Rekap Nilai SPS - ${courseName}${meetingLabel && ` - ${meetingLabel}`}.csv`.replace(/[\\/:*?"<>|]/g, "-")}
+            filename={`Rekap Nilai SPS - ${courseName} - ${taskLabel}.csv`.replace(/[\\/:*?"<>|]/g, "-")}
           />
         )}
       </div>
@@ -99,11 +95,6 @@ export function SpsRecap({
                 {cols.map(({ a, rubric }) => (
                   <th key={a.id} colSpan={rubric.length + 1} className={`${groupBorder} text-center`}>
                     <Link href={`/assignments/${a.id}/grades`}>{a.title}</Link>
-                    {meetings[a.id]?.length ? (
-                      <div className="text-[12px] font-normal normal-case text-muted">
-                        Pertemuan {[...meetings[a.id]].sort((x, y) => x - y).join(", ")}
-                      </div>
-                    ) : null}
                     {a.spreadsheetId && (
                       <span className="text-[12px] font-normal normal-case">
                         {" "}· <a href={sheetUrl(a.spreadsheetId)} target="_blank" rel="noreferrer">Sheets ↗</a>
