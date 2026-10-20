@@ -150,8 +150,17 @@ export default async function CoursePage({
 
       <AutoRefresh active={recapSubs.some((s) => s.status === "processing")} />
       <SpsRecap
+        courseName={course.name}
         assignments={course.assignments.filter((a) => a.imported)}
         submissions={recapSubs}
+        meetings={Object.fromEntries(
+          course.assignments.map((a) => [
+            a.id,
+            a.materials
+              .map((m) => allMaterials.find((x) => x.id === m.materialId)?.meeting)
+              .filter((n): n is number => n != null),
+          ]),
+        )}
       />
     </>
   );
