@@ -20,6 +20,8 @@ const AI_STEPS = [
   { at: 32, text: "Hampir selesai, AI masih berpikir…" },
 ];
 
+type RubricRow = Omit<RubricCriterion, "weight"> & { weight: number | "" };
+
 interface MaterialOption {
   id: string;
   title: string;
@@ -41,7 +43,8 @@ export function SetupForm({
 }) {
   const [instructions, setInstructions] = useState(assignment.instructions);
   const [selected, setSelected] = useState(new Set(selectedMaterialIds));
-  const [rubric, setRubric] = useState(initialRubric);
+  // Bobot boleh "" sementara agar input bisa dikosongkan; dihitung 0 saat dijumlah/disimpan.
+  const [rubric, setRubric] = useState<RubricRow[]>(initialRubric);
   const toast = useToast();
   const [generating, setGenerating] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -69,7 +72,7 @@ export function SetupForm({
       return next;
     });
 
-  const updateRow = (i: number, patch: Partial<RubricCriterion>) =>
+  const updateRow = (i: number, patch: Partial<RubricRow>) =>
     setRubric((r) => r.map((c, j) => (j === i ? { ...c, ...patch } : c)));
 
   // Server action tidak bisa dibatalkan; "Hentikan" cukup mengabaikan hasil run yang sedang jalan.
@@ -207,7 +210,7 @@ export function SetupForm({
             <div className="mb-2 grid animate-[rise_0.3s_var(--ease-out-soft)_both] grid-cols-1 gap-2 md:grid-cols-[1.2fr_2fr_90px_auto]" key={i}>
               <input type="text" placeholder="Kriteria" value={c.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
               <input type="text" placeholder="Indikator / deskripsi" value={c.description} onChange={(e) => updateRow(i, { description: e.target.value })} />
-              <input type="number" min={0} max={100} value={c.weight} onChange={(e) => updateRow(i, { weight: Number(e.target.value) })} aria-label="Bobot (%)" />
+              <input type="number" min={0} max={100} value={c.weight} onChange={(e) => updateRow(i, { weight: e.target.value === "" ? "" : Number(e.target.value) })} aria-label="Bobot (%)" />
               <button type="button" className="btn btn-danger" onClick={() => setDeleteIndex(i)}>Hapus</button>
             </div>
           ))}

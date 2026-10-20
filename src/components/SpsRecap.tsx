@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import type { assignments, submissions } from "@/db/schema";
 import { sheetUrl, type CriterionScore } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
@@ -6,12 +7,29 @@ import { parseRubric } from "@/lib/rubric";
 type Assignment = typeof assignments.$inferSelect;
 type Submission = typeof submissions.$inferSelect;
 
+/** Email kampus berformat nama.nim@...; ambil NIM dari angka sebelum "@". */
+const nimFromEmail = (email: string | null) => email?.match(/(\d+)@/)?.[1] ?? "";
+
 /**
  * Rekap nilai SPS per course: baris = mahasiswa; tiap tugas punya kolom per kriteria rubrik
  * (skor 0-100 + bobot) dan kolom Total (skala nilai maks tugas).
  */
-export function SpsRecap({ assignments, submissions }: { assignments: Assignment[]; submissions: Submission[] }) {
+export function SpsRecap({
+  courseName,
+  assignments,
+  submissions,
+  meetings,
+}: {
+  courseName: string;
+  assignments: Assignment[];
+  submissions: Submission[];
+  /** Nomor pertemuan materi acuan per tugas. */
+  meetings: Record<string, number[]>;
+}) {
   if (assignments.length === 0) return null;
+
+  const allMeetings = [...new Set(assignments.flatMap((a) => meetings[a.id] ?? []))].sort((x, y) => x - y);
+  const meetingLabel = allMeetings.length ? `Pertemuan ${allMeetings.join(", ")}` : "";
 
   const cols = assignments.map((a) => ({ a, rubric: parseRubric(a.rubric) }));
   const students = new Map<string, { name: string; email: string | null }>();
@@ -20,21 +38,72 @@ export function SpsRecap({ assignments, submissions }: { assignments: Assignment
     if (!students.has(s.studentId)) students.set(s.studentId, { name: s.studentName ?? s.studentId, email: s.studentEmail });
     byKey.set(`${s.studentId}:${s.assignmentId}`, s);
   }
-  const rows = [...students.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+  // Urut NIM; mahasiswa tanpa NIM di akhir, urut nama.
+  const rows = [...students.entries()]
+    .map(([id, st]) => [id, { ...st, nim: nimFromEmail(st.email) }] as const)
+    .sort(([, a], [, b]) =>
+      a.nim && b.nim ? a.nim.localeCompare(b.nim, undefined, { numeric: true }) : a.nim ? -1 : b.nim ? 1 : a.name.localeCompare(b.name),
+    );
   const groupBorder = "border-l border-line";
+
+  const csvRows: (string | number)[][] = [
+    [
+      "No",
+      "NIM",
+      "Mahasiswa",
+      "Email",
+      ...cols.flatMap(({ a, rubric }) => [
+        ...rubric.map((c) => `${a.title} - ${c.name} (${c.weight}%)`),
+        `${a.title} - Total Nilai (maks ${a.maxScore})`,
+      ]),
+    ],
+    ...rows.map(([studentId, st], i) => [
+      i + 1,
+      st.nim,
+      st.name,
+      st.email ?? "",
+      ...cols.flatMap(({ a, rubric }) => {
+        const s = byKey.get(`${studentId}:${a.id}`);
+        const done = s && (s.status === "graded" || s.status === "reviewed");
+        const scores: CriterionScore[] = done && s.breakdown ? JSON.parse(s.breakdown) : [];
+        return [
+          ...rubric.map((c) => scores.find((x) => x.name === c.name)?.score ?? ""),
+          s?.finalScore ?? "",
+        ];
+      }),
+    ]),
+  ];
 
   return (
     <section className="mt-8">
-      <h2>Rekap Nilai SPS</h2>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div>
+          <h2 className="m-0">Rekap Nilai SPS{meetingLabel && ` — Tugas ${meetingLabel}`}</h2>
+          <div className="text-[13px] text-muted">{courseName}</div>
+        </div>
+        <span className="flex-1" />
+        {rows.length > 0 && (
+          <DownloadCsvButton
+            rows={csvRows}
+            filename={`Rekap Nilai SPS - ${courseName}${meetingLabel && ` - ${meetingLabel}`}.csv`.replace(/[\\/:*?"<>|]/g, "-")}
+          />
+        )}
+      </div>
         <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm">
           <table className="w-full border-collapse">
             <thead>
               <tr>
                 <th rowSpan={2}>No</th>
+                <th rowSpan={2}>NIM</th>
                 <th rowSpan={2}>Mahasiswa</th>
                 {cols.map(({ a, rubric }) => (
                   <th key={a.id} colSpan={rubric.length + 1} className={`${groupBorder} text-center`}>
                     <Link href={`/assignments/${a.id}/grades`}>{a.title}</Link>
+                    {meetings[a.id]?.length ? (
+                      <div className="text-[12px] font-normal normal-case text-muted">
+                        Pertemuan {[...meetings[a.id]].sort((x, y) => x - y).join(", ")}
+                      </div>
+                    ) : null}
                     {a.spreadsheetId && (
                       <span className="text-[12px] font-normal normal-case">
                         {" "}· <a href={sheetUrl(a.spreadsheetId)} target="_blank" rel="noreferrer">Sheets ↗</a>
@@ -52,7 +121,7 @@ export function SpsRecap({ assignments, submissions }: { assignments: Assignment
                     </th>
                   )),
                   <th key={`${a.id}:total`} className={`text-[12px] normal-case ${rubric.length ? "" : groupBorder}`}>
-                    Total
+                    Total Nilai
                     <div className="font-normal text-muted">maks {a.maxScore}</div>
                   </th>,
                 ])}
@@ -61,7 +130,7 @@ export function SpsRecap({ assignments, submissions }: { assignments: Assignment
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={2 + cols.reduce((n, c) => n + c.rubric.length + 1, 0)} className="text-muted">
+                  <td colSpan={3 + cols.reduce((n, c) => n + c.rubric.length + 1, 0)} className="text-muted">
                     Belum ada nilai. Lengkapi materi &amp; rubrik tiap tugas, lalu klik <b>Koreksi</b>.
                   </td>
                 </tr>
@@ -69,6 +138,7 @@ export function SpsRecap({ assignments, submissions }: { assignments: Assignment
               {rows.map(([studentId, st], i) => (
                 <tr key={studentId}>
                   <td className="text-muted">{i + 1}</td>
+                  <td className="tabular-nums">{st.nim || <span className="text-muted">—</span>}</td>
                   <td>
                     <div>{st.name}</div>
                     {st.email && <div className="text-[13px] text-muted">{st.email}</div>}
@@ -96,7 +166,7 @@ export function SpsRecap({ assignments, submissions }: { assignments: Assignment
                         ) : s.finalScore != null ? (
                           <b>{s.finalScore}</b>
                         ) : (
-                          <span className="text-muted">belum</span>
+                          <span className="text-[13px] text-muted">Belum dinilai</span>
                         )}
                       </td>,
                     ];
