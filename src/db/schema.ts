@@ -170,6 +170,12 @@ export const submissions = pgTable(
     feedback: text("feedback"),
     error: text("error"),
     gradedAt: ts("gradedAt"),
+    // Teks lampiran per halaman/slide (JSON TextSegment[]) untuk cek kemiripan antar-submission
+    textSegments: text("textSegments"),
+    // Hasil cek kemiripan (JSON SimilarityMatch[]); null/[] = tidak ada yang mirip
+    similarity: text("similarity"),
+    // Keputusan dosen atas kemiripan: null (belum dicek) | "accepted" (tetap dinilai) | "rejected" (nilai 0)
+    similarityDecision: text("similarityDecision"),
     updatedAt: ts("updatedAt").notNull().defaultNow().$onUpdate(() => new Date()),
   },
   (t) => [uniqueIndex("Submission_assignmentId_externalId_key").on(t.assignmentId, t.externalId)],

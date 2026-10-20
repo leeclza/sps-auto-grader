@@ -7,6 +7,7 @@ import { generateJsonParts, geminiErrorMessage, type GeminiPart } from "./gemini
 import { getGoogleAuth } from "./google";
 import { extractFromFile } from "./materials";
 import { parseRubric, type RubricCriterion } from "./rubric";
+import { detectSimilarity, type TextSegment } from "./similarity";
 
 type Assignment = typeof assignments.$inferSelect;
 type Course = typeof courses.$inferSelect;
@@ -100,16 +101,66 @@ export async function pullSubmissions(userId: string, assignment: Assignment, co
 
 // ---------- Baca isi lampiran ----------
 
-async function driveFileParts(auth: OAuth2Client, fileId: string): Promise<GeminiPart[]> {
+/** Teks PDF per halaman (untuk cek kemiripan); kosong bila PDF hasil scan/gambar. */
+async function pdfPages(buf: Buffer) {
+  try {
+    const { extractText, getDocumentProxy } = await import("unpdf");
+    const { text } = await extractText(await getDocumentProxy(new Uint8Array(buf)), { mergePages: false });
+    return text;
+  } catch {
+    return [];
+  }
+}
+
+/** Teks PPTX per slide, diambil dari ppt/slides/slideN.xml. */
+async function pptxSlides(buf: Buffer) {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(buf);
+  const slides = Object.keys(zip.files)
+    .map((name) => ({ name, n: Number(name.match(/^ppt\/slides\/slide(\d+)\.xml$/)?.[1]) }))
+    .filter((s) => s.n)
+    .sort((a, b) => a.n - b.n);
+  return Promise.all(
+    slides.map(async (s) => {
+      const xml = await zip.file(s.name)!.async("string");
+      // Tiap paragraf (<a:p>) jadi satu baris agar judul slide terdeteksi sebagai bagian.
+      return xml
+        .split(/<\/a:p>/)
+        .map((p) => [...p.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(""))
+        .filter(Boolean)
+        .join("\n");
+    }),
+  );
+}
+
+const decodeXml = (s: string) =>
+  s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+
+interface FileRead {
+  parts: GeminiPart[];
+  segments: TextSegment[];
+}
+
+async function driveFileParts(auth: OAuth2Client, fileId: string): Promise<FileRead> {
   const base = `https://www.googleapis.com/drive/v3/files/${fileId}`;
   const meta = (await auth.request<{ name: string; mimeType: string; size?: string }>({
     url: `${base}?fields=name,mimeType,size&supportsAllDrives=true`,
   })).data;
   const header = { text: `\n--- File: ${meta.name} (${meta.mimeType}) ---\n` };
+  const download = async (url: string) =>
+    Buffer.from((await auth.request<ArrayBuffer>({ url, responseType: "arraybuffer" })).data);
+  const pdfRead = async (buf: Buffer, unit: "halaman" | "slide"): Promise<FileRead> => ({
+    // PDF dikirim apa adanya agar Gemini bisa membaca tulisan tangan, diagram, dsb.
+    parts: [header, { inlineData: { mimeType: "application/pdf", data: buf.toString("base64") } }],
+    segments: (await pdfPages(buf)).map((text, i) => ({ file: meta.name, loc: `${unit} ${i + 1}`, text })),
+  });
 
+  // Google Slides diekspor ke PDF agar tiap halaman = satu slide.
+  if (meta.mimeType === "application/vnd.google-apps.presentation") {
+    return pdfRead(await download(`${base}/export?mimeType=application%2Fpdf`), "slide");
+  }
   const exportAs: Record<string, string> = {
     "application/vnd.google-apps.document": "text/plain",
-    "application/vnd.google-apps.presentation": "text/plain",
     "application/vnd.google-apps.spreadsheet": "text/csv",
   };
   if (exportAs[meta.mimeType]) {
@@ -117,35 +168,45 @@ async function driveFileParts(auth: OAuth2Client, fileId: string): Promise<Gemin
       url: `${base}/export?mimeType=${encodeURIComponent(exportAs[meta.mimeType])}`,
       responseType: "text",
     });
-    return [header, { text: String(res.data).slice(0, 100_000) }];
+    const text = String(res.data).slice(0, 100_000);
+    return { parts: [header, { text }], segments: [{ file: meta.name, loc: "", text }] };
   }
   if (meta.mimeType.startsWith("application/vnd.google-apps")) {
-    return [header, { text: "(Jenis file Google ini tidak bisa dibaca otomatis.)" }];
+    return { parts: [header, { text: "(Jenis file Google ini tidak bisa dibaca otomatis.)" }], segments: [] };
   }
-  if (Number(meta.size ?? 0) > MAX_INLINE_BYTES) return [header, { text: "(File terlalu besar untuk dibaca.)" }];
+  if (Number(meta.size ?? 0) > MAX_INLINE_BYTES) return { parts: [header, { text: "(File terlalu besar untuk dibaca.)" }], segments: [] };
 
-  const buf = Buffer.from(
-    (await auth.request<ArrayBuffer>({ url: `${base}?alt=media&supportsAllDrives=true`, responseType: "arraybuffer" })).data,
-  );
-  // PDF & gambar dikirim apa adanya agar Gemini bisa membaca tulisan tangan, diagram, dsb.
-  if (meta.mimeType === "application/pdf" || meta.mimeType.startsWith("image/")) {
-    return [header, { inlineData: { mimeType: meta.mimeType, data: buf.toString("base64") } }];
+  const buf = await download(`${base}?alt=media&supportsAllDrives=true`);
+  if (meta.mimeType === "application/pdf") return pdfRead(buf, "halaman");
+  if (meta.mimeType.startsWith("image/")) {
+    return { parts: [header, { inlineData: { mimeType: meta.mimeType, data: buf.toString("base64") } }], segments: [] };
   }
   try {
-    const text = await extractFromFile(new File([buf], meta.name));
-    return [header, { text: text.slice(0, 100_000) }];
+    if (/\.pptx$/i.test(meta.name)) {
+      const slides = (await pptxSlides(buf)).map(decodeXml);
+      const text = slides.map((t, i) => `[Slide ${i + 1}]\n${t}`).join("\n\n").slice(0, 100_000);
+      return { parts: [header, { text }], segments: slides.map((t, i) => ({ file: meta.name, loc: `slide ${i + 1}`, text: t })) };
+    }
+    const text = (await extractFromFile(new File([buf], meta.name))).slice(0, 100_000);
+    return { parts: [header, { text }], segments: [{ file: meta.name, loc: "", text }] };
   } catch {
-    return [header, { text: "(Format file tidak didukung untuk dibaca otomatis.)" }];
+    return { parts: [header, { text: "(Format file tidak didukung untuk dibaca otomatis.)" }], segments: [] };
   }
 }
 
-async function submissionParts(auth: OAuth2Client, content: SubmissionContent): Promise<GeminiPart[]> {
+async function submissionParts(auth: OAuth2Client, content: SubmissionContent): Promise<FileRead> {
   const parts: GeminiPart[] = [];
-  if (content.answer) parts.push({ text: `Jawaban singkat: ${content.answer}` });
+  const segments: TextSegment[] = [];
+  if (content.answer) {
+    parts.push({ text: `Jawaban singkat: ${content.answer}` });
+    segments.push({ file: "Jawaban singkat", loc: "", text: content.answer });
+  }
   for (const a of content.attachments) {
     if (a.kind === "drive" && a.id) {
       try {
-        parts.push(...(await driveFileParts(auth, a.id)));
+        const read = await driveFileParts(auth, a.id);
+        parts.push(...read.parts);
+        segments.push(...read.segments);
       } catch (e) {
         parts.push({ text: `\n--- File: ${a.title ?? a.id} --- (gagal dibaca: ${(e as Error).message})` });
       }
@@ -153,7 +214,7 @@ async function submissionParts(auth: OAuth2Client, content: SubmissionContent): 
       parts.push({ text: `\n--- ${a.kind}: ${a.title ?? ""} ${a.url ?? ""} --- (isi tautan tidak dibuka)` });
     }
   }
-  return parts;
+  return { parts, segments };
 }
 
 /**
@@ -170,7 +231,7 @@ export async function sampleSubmissionParts(userId: string, assignment: Assignme
   let count = 0;
   for (const s of picked) {
     const content: SubmissionContent = JSON.parse(s.content ?? '{"attachments":[]}');
-    const sp = await submissionParts(auth, content);
+    const { parts: sp } = await submissionParts(auth, content);
     if (!sp.length) continue;
     parts.push({ text: `\n===== Contoh jawaban #${++count} =====` }, ...sp);
   }
@@ -216,10 +277,10 @@ export function totalScore(rubric: RubricCriterion[], scores: CriterionScore[], 
 
 async function gradeOne(auth: OAuth2Client, assignment: Assignment, rubric: RubricCriterion[], materi: string, sub: typeof submissions.$inferSelect) {
   const content: SubmissionContent = JSON.parse(sub.content ?? '{"attachments":[]}');
-  const answerParts = await submissionParts(auth, content);
+  const { parts: answerParts, segments } = await submissionParts(auth, content);
   if (!answerParts.length) {
     const scores = rubric.map((c) => ({ name: c.name, score: 0, comment: "Tidak ada jawaban/lampiran." }));
-    return { scores, feedback: "Submission kosong: tidak ada lampiran atau jawaban." };
+    return { scores, feedback: "Submission kosong: tidak ada lampiran atau jawaban.", segments };
   }
 
   const prompt = `Kamu asisten dosen yang menilai tugas mahasiswa secara objektif dan konsisten.
@@ -227,6 +288,12 @@ Nilai jawaban mahasiswa di bawah berdasarkan RUBRIK dan MATERI ACUAN. Beri skor 
 Kembalikan JSON:
 {"criteria": [{"name": "<nama kriteria persis seperti rubrik>", "score": angka 0-100, "comment": "alasan singkat"}],
  "feedback": "umpan balik 2-4 kalimat untuk mahasiswa, Bahasa Indonesia"}
+
+Aturan feedback:
+- Fokus pada isi jawaban: apa yang sudah baik dan apa yang perlu diperbaiki untuk tugas berikutnya.
+- Pengumpulan bersifat final. JANGAN menyuruh mahasiswa mengumpulkan ulang, merevisi submission ini,
+  atau menghubungi dosen/asisten untuk konfirmasi. Jika format/file tidak sesuai, cukup cerminkan di skor
+  dan sebutkan singkat sebagai catatan.
 
 Judul tugas: ${assignment.title}
 Instruksi tugas: ${assignment.instructions || assignment.description || "-"}
@@ -244,7 +311,16 @@ JAWABAN MAHASISWA:`;
     const r = res.criteria?.find((x) => x.name.trim().toLowerCase() === c.name.trim().toLowerCase());
     return { name: c.name, score: Number(r?.score) || 0, comment: r?.comment ?? "" };
   });
-  return { scores, feedback: res.feedback ?? "" };
+  return { scores, feedback: stripResubmitAdvice(res.feedback ?? ""), segments };
+}
+
+/** Pengumpulan bersifat final: buang kalimat yang menyuruh kumpul ulang / menghubungi dosen. */
+function stripResubmitAdvice(feedback: string) {
+  const banned = /(hubungi|menghubungi|konfirmasi|kumpul(kan)? ulang|pengumpulan ulang|unggah ulang|upload ulang|revisi submission)/i;
+  return (feedback.match(/[^.!?]+[.!?]*\s*/g) ?? [feedback])
+    .filter((s) => !banned.test(s))
+    .join("")
+    .trim();
 }
 
 /** Nilai semua submission berstatus "processing", lalu perbarui spreadsheet. Dijalankan di background. */
@@ -256,21 +332,41 @@ export async function gradeProcessing(userId: string, assignmentId: string) {
   const queue = await db
     .select()
     .from(submissions)
-    .where(and(eq(submissions.assignmentId, assignmentId), eq(submissions.status, "processing")));
+    .where(and(eq(submissions.assignmentId, assignmentId), eq(submissions.status, "processing")))
+    // Urutan sama dengan tabel nilai, agar hasil terisi berurutan dari atas.
+    .orderBy(asc(submissions.studentName));
 
+  // Hanya tulis hasil bila masih "processing": stopGrading mengembalikannya ke "pending".
+  const stillProcessing = (id: string) => and(eq(submissions.id, id), eq(submissions.status, "processing"));
   for (const sub of queue) {
+    const [current] = await db.select({ status: submissions.status }).from(submissions).where(eq(submissions.id, sub.id));
+    if (current?.status !== "processing") continue; // dihentikan
     try {
-      const { scores, feedback } = await gradeOne(auth, assignment, rubric, materi, sub);
+      const { scores, feedback, segments } = await gradeOne(auth, assignment, rubric, materi, sub);
       const score = totalScore(rubric, scores, assignment.maxScore);
       await db
         .update(submissions)
-        .set({ status: "graded", aiScore: score, finalScore: score, breakdown: JSON.stringify(scores), feedback, error: null, gradedAt: new Date() })
-        .where(eq(submissions.id, sub.id));
+        .set({
+          status: "graded",
+          aiScore: score,
+          finalScore: score,
+          breakdown: JSON.stringify(scores),
+          feedback,
+          error: null,
+          gradedAt: new Date(),
+          textSegments: JSON.stringify(segments),
+        })
+        .where(stillProcessing(sub.id));
     } catch (e) {
-      await db.update(submissions).set({ status: "error", error: geminiErrorMessage(e) }).where(eq(submissions.id, sub.id));
+      await db.update(submissions).set({ status: "error", error: geminiErrorMessage(e) }).where(stillProcessing(sub.id));
     }
   }
 
+  try {
+    await detectSimilarity(assignmentId);
+  } catch (e) {
+    console.error("Gagal mengecek kemiripan:", e);
+  }
   try {
     await exportToSheet(userId, assignmentId);
   } catch (e) {

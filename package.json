@@ -17,6 +17,7 @@
     "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.3",
     "google-auth-library": "^11.1.0",
+    "jszip": "^3.10.1",
     "mammoth": "^1.12.3",
     "next": "^15.5.26",
     "next-auth": "^4.24.15",
