@@ -100,6 +100,8 @@ export const assignments = pgTable(
     // Rubrik disimpan sebagai JSON: [{ name, description, weight }]
     rubric: text("rubric"),
     gradingNotes: text("gradingNotes"),
+    // Spreadsheet rekap nilai SPS (dibuat otomatis saat koreksi pertama)
+    spreadsheetId: text("spreadsheetId"),
     updatedAt: ts("updatedAt").notNull().defaultNow().$onUpdate(() => new Date()),
   },
   (t) => [uniqueIndex("Assignment_courseId_externalId_key").on(t.courseId, t.externalId)],
@@ -142,6 +144,37 @@ export const assignmentMaterials = pgTable(
   (t) => [primaryKey({ columns: [t.assignmentId, t.materialId] })],
 );
 
+// ---------- Pengumpulan & nilai ----------
+// status: "pending" | "processing" | "graded" (draft AI, belum dicek) | "reviewed" (sudah dicek guru) | "error"
+// Nilai disimpan lokal saja; tidak otomatis dikirim ke GCR.
+
+export const submissions = pgTable(
+  "Submission",
+  {
+    id: id(),
+    assignmentId: text("assignmentId").notNull().references(() => assignments.id, { onDelete: "cascade" }),
+    externalId: text("externalId").notNull(),
+    studentId: text("studentId").notNull(),
+    studentName: text("studentName"),
+    studentEmail: text("studentEmail"),
+    // Isi jawaban / lampiran yang dinilai (teks atau JSON lampiran)
+    content: text("content"),
+    submittedAt: ts("submittedAt"),
+    late: boolean("late").notNull().default(false),
+    status: text("status").notNull().default("pending"),
+    // Skor dari AI dan skor final setelah dicek guru
+    aiScore: doublePrecision("aiScore"),
+    finalScore: doublePrecision("finalScore"),
+    // Rincian per kriteria rubrik sebagai JSON: [{ name, score, comment }]
+    breakdown: text("breakdown"),
+    feedback: text("feedback"),
+    error: text("error"),
+    gradedAt: ts("gradedAt"),
+    updatedAt: ts("updatedAt").notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (t) => [uniqueIndex("Submission_assignmentId_externalId_key").on(t.assignmentId, t.externalId)],
+);
+
 // ---------- Relasi (untuk db.query) ----------
 
 export const coursesRelations = relations(courses, ({ many }) => ({ assignments: many(assignments) }));
@@ -149,6 +182,11 @@ export const coursesRelations = relations(courses, ({ many }) => ({ assignments:
 export const assignmentsRelations = relations(assignments, ({ one, many }) => ({
   course: one(courses, { fields: [assignments.courseId], references: [courses.id] }),
   materials: many(assignmentMaterials),
+  submissions: many(submissions),
+}));
+
+export const submissionsRelations = relations(submissions, ({ one }) => ({
+  assignment: one(assignments, { fields: [submissions.assignmentId], references: [assignments.id] }),
 }));
 
 export const materialsRelations = relations(materials, ({ many }) => ({

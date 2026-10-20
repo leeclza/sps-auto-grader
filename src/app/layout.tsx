@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import { SignOutButton } from "@/components/AuthButtons";
 import { NavLinks } from "@/components/NavLinks";
+import { Toaster } from "@/components/Toaster";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
@@ -17,11 +17,12 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   const email = session?.user?.email ?? "";
   return (
     <html lang="id" className={`${geist.variable} ${geistMono.variable} ${fraunces.variable}`}>
       <body>
+        <Toaster>
         {session && (
           <header className="sticky top-0 z-20 flex animate-fade flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-line bg-bg/80 px-[max(16px,calc((100vw-1100px)/2))] py-3 backdrop-blur-md backdrop-saturate-[1.2] md:flex-nowrap md:gap-7">
             <Link href="/" className="group inline-flex items-center gap-2.5 font-semibold text-ink hover:text-ink">
@@ -44,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </header>
         )}
         <main className="stagger mx-auto max-w-[1100px] px-4 pt-9 pb-20">{children}</main>
+        </Toaster>
       </body>
     </html>
   );

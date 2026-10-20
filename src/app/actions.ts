@@ -5,9 +5,10 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { assignmentMaterials, assignments, courses, materialPages, materials } from "@/db/schema";
+import { assignmentMaterials, assignments, courses, materialPages, materials, submissions } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
 import { generateJson, geminiErrorMessage } from "@/lib/gemini";
+import { exportToSheet, gradeProcessing, pullSubmissions } from "@/lib/grading";
 import { extractFromFile, extractFromUrl, guessMeeting, learnMaterial } from "@/lib/materials";
 import { gcrProvider } from "@/lib/providers/gcr";
 import { parseRubric, type RubricCriterion } from "@/lib/rubric";
@@ -123,12 +124,42 @@ export async function importAssignments(courseId: string, formData: FormData) {
   await ownedCourse(user.id, courseId);
   const ids = formData.getAll("assignmentId").map(String);
   if (ids.length) {
-    await db
+    const imported = await db
       .update(assignments)
       .set({ imported: true })
-      .where(and(eq(assignments.courseId, courseId), inArray(assignments.id, ids)));
+      .where(and(eq(assignments.courseId, courseId), inArray(assignments.id, ids)))
+      .returning({ id: assignments.id, title: assignments.title });
+    await autoPickMaterials(imported);
   }
   revalidatePath(`/classroom/${courseId}`);
+}
+
+/** Tugas yang belum punya materi: pilih otomatis materi dengan nomor pertemuan yang sama dengan judul tugas. */
+async function autoPickMaterials(list: { id: string; title: string }[]) {
+  const linked = new Set(
+    (await db.select({ id: assignmentMaterials.assignmentId }).from(assignmentMaterials).where(inArray(assignmentMaterials.assignmentId, list.map((a) => a.id)))).map((r) => r.id),
+  );
+  const all = await db.select({ id: materials.id, meeting: materials.meeting }).from(materials);
+  const rows = list
+    .filter((a) => !linked.has(a.id))
+    .flatMap((a) => {
+      const meeting = guessMeeting(a.title);
+      return meeting ? all.filter((m) => m.meeting === meeting).map((m) => ({ assignmentId: a.id, materialId: m.id })) : [];
+    });
+  if (rows.length) await db.insert(assignmentMaterials).values(rows).onConflictDoNothing();
+}
+
+/** Ganti daftar materi acuan sebuah tugas (dipakai dari tabel tugas). */
+export async function setAssignmentMaterials(assignmentId: string, materialIds: string[]) {
+  const user = await requireUser();
+  const a = await ownedAssignment(user.id, assignmentId);
+  await db.batch([
+    db.delete(assignmentMaterials).where(eq(assignmentMaterials.assignmentId, a.id)),
+    ...(materialIds.length
+      ? [db.insert(assignmentMaterials).values(materialIds.map((materialId) => ({ assignmentId: a.id, materialId })))]
+      : []),
+  ]);
+  revalidatePath(`/classroom/${a.courseId}`);
 }
 
 export async function setImported(assignmentId: string, imported: boolean) {
@@ -218,7 +249,6 @@ export async function addMaterialFromUrl(formData: FormData) {
 
   const pages = await extractFromUrl(url, crawl);
   // Satu halaman = satu materi (mis. tiap "pertemuan-N.html"), supaya bisa dipilih per pertemuan.
-  const created: string[] = [];
   for (const [i, page] of pages.entries()) {
     if (page.content.length < 50) continue;
     if (page.url) await db.delete(materials).where(eq(materials.sourceUrl, page.url));
@@ -230,13 +260,11 @@ export async function addMaterialFromUrl(formData: FormData) {
         meeting: guessMeeting(page.url, page.title),
         kind: "url",
         sourceUrl: page.url,
-        status: "processing",
+        status: "pending",
       })
       .returning({ id: materials.id });
     await db.insert(materialPages).values({ materialId: m.id, url: page.url, title: page.title, content: page.content, order: i });
-    created.push(m.id);
   }
-  learnInBackground(created);
   revalidatePath("/materials");
 }
 
@@ -246,7 +274,6 @@ export async function addMaterialFromFile(formData: FormData) {
   const files = formData.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   const subject = String(formData.get("subject") ?? "DTD").trim() || "DTD";
   const meetingInput = Number(formData.get("meeting"));
-  const created: string[] = [];
   for (const file of files) {
     const content = await extractFromFile(file);
     const title = file.name.replace(/\.[^.]+$/, "");
@@ -258,13 +285,11 @@ export async function addMaterialFromFile(formData: FormData) {
         meeting: meetingInput > 0 ? meetingInput : guessMeeting(file.name),
         kind: "file",
         fileName: file.name,
-        status: "processing",
+        status: "pending",
       })
       .returning({ id: materials.id });
     await db.insert(materialPages).values({ materialId: m.id, title, content });
-    created.push(m.id);
   }
-  learnInBackground(created);
   revalidatePath("/materials");
 }
 
@@ -293,6 +318,21 @@ export async function relearnMaterial(materialId: string) {
   revalidatePath("/materials");
 }
 
+/** Pelajari materi yang dicentang di daftar (atau semua yang belum dipelajari bila `allPending`). */
+export async function learnSelectedMaterials(formData: FormData) {
+  await requireUser();
+  const ids = formData.getAll("materialId").map(String);
+  const where = formData.get("allPending") ? eq(materials.status, "pending") : ids.length ? inArray(materials.id, ids) : null;
+  if (!where) return;
+  const picked = await db
+    .update(materials)
+    .set({ status: "processing", error: null })
+    .where(where)
+    .returning({ id: materials.id });
+  learnInBackground(picked.map((m) => m.id));
+  revalidatePath("/materials");
+}
+
 export async function relearnFailedMaterials() {
   await requireUser();
   const failed = await db
@@ -308,4 +348,38 @@ export async function deleteMaterial(materialId: string) {
   await requireUser();
   await db.delete(materials).where(eq(materials.id, materialId));
   revalidatePath("/materials");
+}
+
+// ---------- Koreksi ----------
+
+/**
+ * Tarik submission terbaru dari GCR, lalu nilai yang belum/gagal dinilai di background.
+ * `all` = nilai ulang semua submission (mis. setelah rubrik diubah).
+ */
+export async function gradeAssignment(assignmentId: string, all: boolean) {
+  const user = await requireUser();
+  const a = await ownedAssignment(user.id, assignmentId);
+  if (!parseRubric(a.rubric).length) throw new Error("Buat rubrik dulu di halaman Setup.");
+
+  await pullSubmissions(user.id, a, a.course);
+  await db
+    .update(submissions)
+    .set({ status: "processing", error: null })
+    .where(
+      and(
+        eq(submissions.assignmentId, a.id),
+        all ? notInArray(submissions.status, ["processing"]) : inArray(submissions.status, ["pending", "error"]),
+      ),
+    );
+  after(() => gradeProcessing(user.id, a.id));
+  revalidatePath(`/assignments/${a.id}/grades`);
+  redirect(`/assignments/${a.id}/grades`);
+}
+
+export async function exportGradesToSheet(assignmentId: string) {
+  const user = await requireUser();
+  const a = await ownedAssignment(user.id, assignmentId);
+  await exportToSheet(user.id, a.id);
+  revalidatePath(`/assignments/${a.id}/grades`);
+  redirect(`/assignments/${a.id}/grades?exported=${Date.now()}`);
 }

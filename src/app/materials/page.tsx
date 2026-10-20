@@ -2,11 +2,13 @@ import {
   addMaterialFromFile,
   addMaterialFromUrl,
   deleteMaterial,
+  learnSelectedMaterials,
   relearnFailedMaterials,
   relearnMaterial,
   updateMaterial,
 } from "@/app/actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { MaterialStatusToasts } from "@/components/MaterialStatusToasts";
 import { SubmitButton } from "@/components/SubmitButton";
 import { requireUser } from "@/lib/auth";
 import Link from "next/link";
@@ -50,15 +52,19 @@ export default async function MaterialsPage() {
 
   const processing = materials.filter((m) => m.status === "processing").length;
   const failed = materials.filter((m) => m.status === "error").length;
+  const pending = materials.filter((m) => m.status === "pending").length;
 
   return (
     <>
       <AutoRefresh active={processing > 0} />
+      <MaterialStatusToasts
+        materials={materials.map(({ id, title, meeting, status, error }) => ({ id, title, meeting, status, error }))}
+      />
       <span className="eyebrow">Patokan penilaian</span>
       <h1>Materi Acuan</h1>
       <p className="mb-6.5 max-w-[68ch] text-muted">
-        Materi yang di-upload akan dipelajari AI (diringkas & diekstrak konsep kuncinya) lalu dijadikan patokan saat
-        menilai tugas.
+        Materi yang di-upload disimpan dulu. Pilih materi mana yang mau dipelajari AI (diringkas & diekstrak konsep
+        kuncinya) — centang lalu klik <b>Pelajari yang dipilih</b>, atau pakai tombol <b>Pelajari</b> di tiap materi.
       </p>
 
       <div className="stagger grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3.5">
@@ -95,6 +101,15 @@ export default async function MaterialsPage() {
         {processing > 0 && (
           <span className="text-[13px] text-muted">AI sedang mempelajari {processing} materi (maks. ~5 per menit)…</span>
         )}
+        <form id="learn-selected" action={learnSelectedMaterials}>
+          <SubmitButton className="btn btn-primary" pendingText="...">Pelajari yang dipilih</SubmitButton>
+        </form>
+        {pending > 0 && (
+          <form action={learnSelectedMaterials}>
+            <input type="hidden" name="allPending" value="1" />
+            <SubmitButton className="btn" pendingText="...">Pelajari semua yang belum ({pending})</SubmitButton>
+          </form>
+        )}
         {failed > 0 && processing === 0 && (
           <form action={relearnFailedMaterials}>
             <SubmitButton className="btn" pendingText="...">Pelajari ulang {failed} yang error</SubmitButton>
@@ -118,9 +133,18 @@ export default async function MaterialsPage() {
             }`}
           >
             <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="checkbox"
+                name="materialId"
+                value={m.id}
+                form="learn-selected"
+                disabled={processingNow}
+                aria-label={`Pilih ${m.title}`}
+                className="flex-none"
+              />
               <span className="badge">{m.subject}{m.meeting ? ` · P${m.meeting}` : ""}</span>
               <b>{m.title}</b>
-              <span className={`badge ${STATUS[m.status] ?? ""}`}>{m.status}</span>
+              <span className={`badge ${STATUS[m.status] ?? ""}`}>{m.status === "pending" ? "belum dipelajari" : m.status}</span>
               <span className="flex-1" />
               <span className="text-[13px] text-muted">{chars.toLocaleString("id-ID")} karakter · dipakai {m._count.assignments} tugas</span>
             </div>
@@ -149,7 +173,9 @@ export default async function MaterialsPage() {
               </form>
               <span className="flex-1" />
               <form action={relearnMaterial.bind(null, m.id)}>
-                <SubmitButton className="btn" pendingText="...">Pelajari ulang</SubmitButton>
+                <SubmitButton className={m.status === "pending" ? "btn btn-primary" : "btn"} pendingText="..." disabled={processingNow}>
+                  {m.status === "pending" ? "Pelajari" : "Pelajari ulang"}
+                </SubmitButton>
               </form>
               <form action={deleteMaterial.bind(null, m.id)}>
                 <SubmitButton className="btn btn-danger" pendingText="...">Hapus</SubmitButton>

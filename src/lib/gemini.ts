@@ -60,3 +60,17 @@ export async function generateJson<T>(prompt: string): Promise<T> {
   );
   return JSON.parse(res.text ?? "{}") as T;
 }
+
+export type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+
+/** Seperti generateJson, tapi bisa menyertakan file (PDF/gambar) sebagai inline data. */
+export async function generateJsonParts<T>(parts: GeminiPart[]): Promise<T> {
+  const res = await withRetry(() =>
+    ai().models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [{ role: "user", parts }],
+      config: { responseMimeType: "application/json", temperature: 0.2 },
+    }),
+  );
+  return JSON.parse(res.text ?? "{}") as T;
+}

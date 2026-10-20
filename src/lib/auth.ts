@@ -2,11 +2,12 @@ import { and, eq } from "drizzle-orm";
 import { getServerSession, type NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { db } from "@/db";
 import { accounts } from "@/db/schema";
 import { DrizzleAdapter } from "./auth-adapter";
 
-// Scope read-only Google Classroom. Sheets/Drive ditambahkan saat modul spreadsheet dibuat.
+// Classroom read-only, Drive read-only (baca lampiran submission), drive.file (buat & isi spreadsheet SPS).
 export const GOOGLE_SCOPES = [
   "openid",
   "email",
@@ -15,6 +16,8 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/classroom.coursework.students.readonly",
   "https://www.googleapis.com/auth/classroom.rosters.readonly",
   "https://www.googleapis.com/auth/classroom.profile.emails",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file",
 ];
 
 // Hanya email di ALLOWED_EMAILS (dipisah koma) yang boleh login.
@@ -65,16 +68,22 @@ export const authOptions: NextAuthOptions = {
       const verified = (profile as { email_verified?: boolean } | undefined)?.email_verified !== false;
       return verified && isAllowedEmail(user.email);
     },
-    session({ session, user }) {
-      if (session.user) (session.user as { id?: string }).id = user.id;
+    // Sesi disimpan di cookie JWT terenkripsi: cek login tidak perlu query ke database.
+    // Database hanya dipakai saat login (simpan user + token Google).
+    session({ session, token }) {
+      if (session.user) (session.user as { id?: string }).id = token.sub;
       return session;
     },
   },
+  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   pages: { signIn: "/login", error: "/login" },
 };
 
+/** Satu kali baca sesi per request, dipakai bersama oleh layout dan halaman. */
+export const getSession = cache(() => getServerSession(authOptions));
+
 export async function requireUser() {
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   const id = (session?.user as { id?: string } | undefined)?.id;
   if (!session?.user || !id || !isAllowedEmail(session.user.email)) redirect("/login");
   return { id, name: session.user.name, email: session.user.email, image: session.user.image };

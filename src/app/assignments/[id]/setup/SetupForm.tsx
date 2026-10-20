@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { generateRubric, saveAssignmentSetup } from "@/app/actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { useToast } from "@/components/Toaster";
 import type { RubricCriterion } from "@/lib/rubric";
 
 interface MaterialOption {
@@ -28,7 +29,7 @@ export function SetupForm({
   const [instructions, setInstructions] = useState(assignment.instructions);
   const [selected, setSelected] = useState(new Set(selectedMaterialIds));
   const [rubric, setRubric] = useState(initialRubric);
-  const [aiError, setAiError] = useState<string | null>(null);
+  const toast = useToast();
   const [generating, startGenerating] = useTransition();
   const totalWeight = rubric.reduce((s, c) => s + (Number(c.weight) || 0), 0);
 
@@ -45,10 +46,13 @@ export function SetupForm({
 
   const aiRubric = () =>
     startGenerating(async () => {
-      setAiError(null);
       const res = await generateRubric(assignment.id, instructions, [...selected]);
-      if (res.rubric?.length) setRubric(res.rubric);
-      else setAiError(res.error ?? "Gemini tidak mengembalikan rubrik.");
+      if (res.rubric?.length) {
+        setRubric(res.rubric);
+        toast({ tone: "ok", message: `Rubrik dibuat AI (${res.rubric.length} kriteria). Cek lalu simpan.` });
+      } else {
+        toast({ tone: "err", title: "Gagal membuat rubrik", message: res.error ?? "Gemini tidak mengembalikan rubrik." });
+      }
     });
 
   const bySubject = materials.reduce<Record<string, MaterialOption[]>>((acc, m) => {
@@ -111,7 +115,6 @@ export function SetupForm({
             {generating ? "Membuat rubrik..." : "✨ Buat dengan AI"}
           </button>
         </div>
-        {aiError && <div className="alert alert-err mt-3">{aiError}</div>}
         <div className="mt-3">
           {rubric.map((c, i) => (
             <div className="mb-2 grid animate-[rise_0.3s_var(--ease-out-soft)_both] grid-cols-1 gap-2 md:grid-cols-[1.2fr_2fr_90px_auto]" key={i}>

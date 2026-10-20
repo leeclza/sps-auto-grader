@@ -217,3 +217,9 @@
   & > :nth-child(4) { animation-delay: 0.18s; }
   & > :nth-child(n + 5) { animation-delay: 0.24s; }
 }
+
+/* Bilah sisa waktu toast (durasinya diatur inline per toast) */
+@keyframes toast-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}

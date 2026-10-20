@@ -2,10 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { importAssignments, setImported, syncCourse } from "@/app/actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { ToastOnMount } from "@/components/Toaster";
 import { requireUser } from "@/lib/auth";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { assignments, courses } from "@/db/schema";
+import { assignments, courses, materials, submissions } from "@/db/schema";
+import { SpsRecap } from "@/components/SpsRecap";
+import { AutoRefresh } from "@/components/AutoRefresh";
+import { MaterialPicker } from "@/components/MaterialPicker";
 import { parseRubric } from "@/lib/rubric";
 
 export default async function CoursePage({
@@ -28,6 +32,14 @@ export default async function CoursePage({
     },
   });
   if (!course) notFound();
+  const importedIds = course.assignments.filter((a) => a.imported).map((a) => a.id);
+  const recapSubs = importedIds.length
+    ? await db.select().from(submissions).where(inArray(submissions.assignmentId, importedIds))
+    : [];
+  const allMaterials = await db
+    .select({ id: materials.id, title: materials.title, subject: materials.subject, meeting: materials.meeting })
+    .from(materials)
+    .orderBy(asc(materials.subject), asc(materials.meeting), asc(materials.title));
   const neverSynced = course.studentCount === null;
 
   return (
@@ -54,7 +66,7 @@ export default async function CoursePage({
         </table>
       </div>
 
-      {saved && <div className="alert alert-ok">Setup tugas tersimpan.</div>}
+      {saved && <ToastOnMount key={saved} tone="ok" message="Setup tugas tersimpan." />}
 
       <h2>Daftar Tugas</h2>
       {course.assignments.length === 0 ? (
@@ -98,13 +110,20 @@ export default async function CoursePage({
                         )}
                       </td>
                       <td className="text-[13px]">
-                        {a.materials.length
-                          ? a.materials.map((m) => (m.material.meeting ? `P${m.material.meeting}` : m.material.title)).join(", ")
-                          : <span className="text-muted">Belum dipilih</span>}
+                        {a.imported ? (
+                          <MaterialPicker
+                            assignmentId={a.id}
+                            materials={allMaterials}
+                            selectedIds={a.materials.map((m) => m.materialId)}
+                          />
+                        ) : (
+                          <span className="text-muted">Import dulu</span>
+                        )}
                         {a.imported && !hasRubric && <div className="text-muted">Rubrik belum dibuat</div>}
                       </td>
                       <td>
                         <div className="flex flex-wrap items-center gap-3">
+                          {ready && <Link className="btn btn-primary" href={`/assignments/${a.id}/grades`}>Koreksi</Link>}
                           <Link className="btn" href={`/assignments/${a.id}/setup`}>Setup</Link>
                           {a.imported && (
                             <button className="btn btn-danger" formAction={setImported.bind(null, a.id, false)}>
@@ -121,12 +140,18 @@ export default async function CoursePage({
           </div>
           {course.assignments.some((a) => !a.imported) && (
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <SubmitButton pendingText="Mengimpor...">Import ke SPS</SubmitButton>
-              <span className="text-[13px] text-muted">Centang tugas yang ingin dinilai oleh SPS.</span>
+              <SubmitButton pendingText="Menambahkan...">Tambahkan untuk dinilai</SubmitButton>
+              <span className="text-[13px] text-muted">Centang tugas yang ingin dikoreksi AI. Nilainya akan muncul di Rekap Nilai SPS di bawah.</span>
             </div>
           )}
         </form>
       )}
+
+      <AutoRefresh active={recapSubs.some((s) => s.status === "processing")} />
+      <SpsRecap
+        assignments={course.assignments.filter((a) => a.imported)}
+        submissions={recapSubs}
+      />
     </>
   );
 }

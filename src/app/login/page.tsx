@@ -1,7 +1,6 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { SignInButton } from "@/components/AuthButtons";
-import { authOptions, isAllowedEmail } from "@/lib/auth";
+import { getSession, isAllowedEmail } from "@/lib/auth";
 
 const SAMPLE = [
   { name: "Kalkulus · Integral Parsial", nim: "1231200xx", score: 88 },
@@ -29,14 +28,14 @@ function Check({ delay }: { delay: number }) {
 }
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const session = await getServerSession(authOptions);
+  const session = await getSession();
   if (session && isAllowedEmail(session.user?.email)) redirect("/classroom");
   const { error } = await searchParams;
 
   return (
     <div className="grid items-center gap-8 pt-3 lg:min-h-[calc(100vh-116px)] lg:grid-cols-[1.1fr_1fr] lg:gap-14 lg:pt-0">
       <section>
-        <span className="eyebrow">Asisten Praktikum · DTD ITERA</span>
+        <span className="eyebrow">Asisten Cihuy</span>
         <h1 className="text-[clamp(34px,5vw,54px)] leading-[1.05]">
           Koreksi tugas, <em className="text-primary italic">tanpa</em> begadang.
         </h1>
