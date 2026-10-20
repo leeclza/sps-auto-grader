@@ -1,13 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, useTransition } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { generateRubric, saveAssignmentSetup } from "@/app/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { MATERIAL_STATUS_LABEL } from "@/components/MaterialPicker";
 import { useToast } from "@/components/Toaster";
 import type { RubricCriterion } from "@/lib/rubric";
+
+// generateRubric adalah satu panggilan tanpa progres; status ini perkiraan tahap berdasarkan waktu.
+const AI_STEPS = [
+  { at: 0, text: "Membaca instruksi tugas…" },
+  { at: 2, text: "Mempelajari materi acuan…" },
+  { at: 5, text: "Mengambil contoh jawaban mahasiswa dari GCR…" },
+  { at: 10, text: "Menganalisis format jawaban…" },
+  { at: 16, text: "Menyusun kriteria penilaian…" },
+  { at: 24, text: "Menyeimbangkan bobot rubrik…" },
+  { at: 32, text: "Hampir selesai, AI masih berpikir…" },
+];
 
 interface MaterialOption {
   id: string;
@@ -32,11 +43,20 @@ export function SetupForm({
   const [selected, setSelected] = useState(new Set(selectedMaterialIds));
   const [rubric, setRubric] = useState(initialRubric);
   const toast = useToast();
-  const [generating, startGenerating] = useTransition();
+  const [generating, setGenerating] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!generating) return;
+    setElapsed(0);
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [generating]);
+  const aiStatus = AI_STEPS.filter((s) => elapsed >= s.at).at(-1)!.text;
   const totalWeight = rubric.reduce((s, c) => s + (Number(c.weight) || 0), 0);
   const formRef = useRef<HTMLFormElement>(null);
   const confirmedRef = useRef(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
 
   // Hanya materi "ready" yang bisa dipilih; yang sudah terpilih tetap bisa dilepas.
   const locked = (m: MaterialOption) => m.status !== "ready" && !selected.has(m.id);
@@ -52,16 +72,31 @@ export function SetupForm({
   const updateRow = (i: number, patch: Partial<RubricCriterion>) =>
     setRubric((r) => r.map((c, j) => (j === i ? { ...c, ...patch } : c)));
 
-  const aiRubric = () =>
-    startGenerating(async () => {
+  // Server action tidak bisa dibatalkan; "Hentikan" cukup mengabaikan hasil run yang sedang jalan.
+  const aiRun = useRef(0);
+  const stopAi = () => {
+    aiRun.current++;
+    setGenerating(false);
+  };
+
+  const aiRubric = async () => {
+    const run = ++aiRun.current;
+    setGenerating(true);
+    try {
       const res = await generateRubric(assignment.id, instructions, [...selected]);
+      if (run !== aiRun.current) return;
       if (res.rubric?.length) {
         setRubric(res.rubric);
         toast({ tone: "ok", message: `Rubrik dibuat AI (${res.rubric.length} kriteria${res.samples ? `, dari ${res.samples} contoh jawaban + materi` : ""}). Cek lalu simpan.` });
       } else {
         toast({ tone: "err", title: "Gagal membuat rubrik", message: res.error ?? "Gemini tidak mengembalikan rubrik." });
       }
-    });
+    } catch {
+      if (run === aiRun.current) toast({ tone: "err", title: "Gagal membuat rubrik", message: "Terjadi kesalahan jaringan." });
+    } finally {
+      if (run === aiRun.current) setGenerating(false);
+    }
+  };
 
   const bySubject = materials.reduce<Record<string, MaterialOption[]>>((acc, m) => {
     (acc[m.subject] ??= []).push(m);
@@ -143,28 +178,44 @@ export function SetupForm({
           <h2 className="m-0">Rubrik</h2>
           <span className={`badge ${totalWeight === 100 ? "badge-ok" : "badge-warn"}`}>Total bobot {totalWeight}%</span>
           <span className="flex-1" />
-          <button type="button" className="btn" onClick={aiRubric} disabled={generating}>
-            {generating ? "Membuat rubrik..." : "✨ Buat dengan AI"}
-          </button>
+          {generating ? (
+            <>
+              <span className="text-[13px] text-muted" role="status" aria-live="polite">
+                <span className="spinner mr-1.5" aria-hidden="true" />
+                <span key={aiStatus} className="inline-block animate-[rise_0.3s_var(--ease-out-soft)_both]">{aiStatus}</span>
+                <span className="ml-1.5 tabular-nums opacity-70">{elapsed}s</span>
+              </span>
+              <button type="button" className="btn btn-danger" onClick={stopAi}>
+                Hentikan
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn" onClick={aiRubric}>
+              ✨ Buat dengan AI
+            </button>
+          )}
         </div>
         {rubric.length > 0 && totalWeight !== 100 && (
           <p className="mt-2 text-[13px] text-warn">
             ⚠ Total bobot harus 100% (sekarang {totalWeight}%, {totalWeight < 100 ? `kurang ${100 - totalWeight}%` : `lebih ${totalWeight - 100}%`}).
           </p>
         )}
+        {/* Rubrik dikunci selama AI bekerja, kecuali dihentikan. */}
+        <fieldset disabled={generating} className={`m-0 min-w-0 border-0 p-0 ${generating ? "opacity-60" : ""}`}>
         <div className="mt-3">
           {rubric.map((c, i) => (
             <div className="mb-2 grid animate-[rise_0.3s_var(--ease-out-soft)_both] grid-cols-1 gap-2 md:grid-cols-[1.2fr_2fr_90px_auto]" key={i}>
               <input type="text" placeholder="Kriteria" value={c.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
               <input type="text" placeholder="Indikator / deskripsi" value={c.description} onChange={(e) => updateRow(i, { description: e.target.value })} />
               <input type="number" min={0} max={100} value={c.weight} onChange={(e) => updateRow(i, { weight: Number(e.target.value) })} aria-label="Bobot (%)" />
-              <button type="button" className="btn btn-danger" onClick={() => setRubric((r) => r.filter((_, j) => j !== i))}>Hapus</button>
+              <button type="button" className="btn btn-danger" onClick={() => setDeleteIndex(i)}>Hapus</button>
             </div>
           ))}
         </div>
         <button type="button" className="btn" onClick={() => setRubric((r) => [...r, { name: "", description: "", weight: 0 }])}>
           + Kriteria
         </button>
+        </fieldset>
         <input type="hidden" name="rubric" value={JSON.stringify(rubric)} />
 
         <label htmlFor="gradingNotes">Catatan untuk AI <span className="text-[13px] font-normal text-muted">(opsional)</span></label>
@@ -178,47 +229,34 @@ export function SetupForm({
 
       <SubmitButton pendingText="Menyimpan...">Simpan Setup</SubmitButton>
 
-      {/* Portal ke body: ancestor beranimasi (transform) membuat `fixed` tidak relatif ke layar. */}
-      {confirmOpen && createPortal(
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setConfirmOpen(false)}
+      {confirmOpen && (
+        <ConfirmDialog
+          title="Total bobot belum 100%"
+          confirmText="Tetap simpan"
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setConfirmOpen(false);
+            confirmedRef.current = true;
+            formRef.current?.requestSubmit();
+          }}
         >
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="confirm-weight-title"
-            className="card w-full max-w-sm animate-[rise_0.3s_var(--ease-out-soft)_both]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="confirm-weight-title" className="m-0">Total bobot belum 100%</h2>
-            <p className="mt-2 text-muted">
-              Total bobot rubrik sekarang <b className="text-warn">{totalWeight}%</b>. Yakin tetap simpan?
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                className="btn"
-                ref={(el) => el?.focus({ preventScroll: true })}
-                onClick={() => setConfirmOpen(false)}
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => {
-                  setConfirmOpen(false);
-                  confirmedRef.current = true;
-                  formRef.current?.requestSubmit();
-                }}
-              >
-                Tetap simpan
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
+          Total bobot rubrik sekarang <b className="text-warn">{totalWeight}%</b>. Yakin tetap simpan?
+        </ConfirmDialog>
+      )}
+
+      {deleteIndex !== null && (
+        <ConfirmDialog
+          title="Hapus kriteria?"
+          confirmText="Hapus"
+          danger
+          onCancel={() => setDeleteIndex(null)}
+          onConfirm={() => {
+            setRubric((r) => r.filter((_, j) => j !== deleteIndex));
+            setDeleteIndex(null);
+          }}
+        >
+          Anda yakin ingin menghapus kriteria <b className="text-ink">{rubric[deleteIndex]?.name || "tanpa nama"}</b>?
+        </ConfirmDialog>
       )}
     </form>
   );
