@@ -156,6 +156,27 @@ async function submissionParts(auth: OAuth2Client, content: SubmissionContent): 
   return parts;
 }
 
+/**
+ * Tarik submission terbaru dari GCR lalu baca isi beberapa di antaranya,
+ * sebagai contoh format jawaban mahasiswa (dipakai saat membuat rubrik dengan AI).
+ */
+export async function sampleSubmissionParts(userId: string, assignment: Assignment, course: Course, limit = 4) {
+  await pullSubmissions(userId, assignment, course);
+  const subs = await db.select().from(submissions).where(eq(submissions.assignmentId, assignment.id));
+  // Acak agar contoh tidak selalu dari mahasiswa yang sama.
+  const picked = subs.sort(() => Math.random() - 0.5).slice(0, limit);
+  const auth = await getGoogleAuth(userId);
+  const parts: GeminiPart[] = [];
+  let count = 0;
+  for (const s of picked) {
+    const content: SubmissionContent = JSON.parse(s.content ?? '{"attachments":[]}');
+    const sp = await submissionParts(auth, content);
+    if (!sp.length) continue;
+    parts.push({ text: `\n===== Contoh jawaban #${++count} =====` }, ...sp);
+  }
+  return { parts, count, total: subs.length };
+}
+
 // ---------- Penilaian ----------
 
 async function gradingContext(assignmentId: string) {
@@ -163,9 +184,14 @@ async function gradingContext(assignmentId: string) {
     .select({ materialId: assignmentMaterials.materialId })
     .from(assignmentMaterials)
     .where(eq(assignmentMaterials.assignmentId, assignmentId));
-  const mats = links.length
+  return materialsContext(links.map((l) => l.materialId));
+}
+
+/** Teks materi acuan (ringkasan, konsep kunci, isi) untuk prompt Gemini. */
+export async function materialsContext(materialIds: string[]) {
+  const mats = materialIds.length
     ? await db.query.materials.findMany({
-        where: (m) => inArray(m.id, links.map((l) => l.materialId)),
+        where: (m) => inArray(m.id, materialIds),
         with: { pages: { orderBy: asc(materialPages.order) } },
       })
     : [];

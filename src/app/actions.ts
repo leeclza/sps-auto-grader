@@ -7,8 +7,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { assignmentMaterials, assignments, courses, materialPages, materials, submissions } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { generateJson, geminiErrorMessage } from "@/lib/gemini";
-import { exportToSheet, gradeProcessing, pullSubmissions } from "@/lib/grading";
+import { generateJson, generateJsonParts, geminiErrorMessage, type GeminiPart } from "@/lib/gemini";
+import { exportToSheet, gradeProcessing, materialsContext, pullSubmissions, sampleSubmissionParts } from "@/lib/grading";
 import { extractFromFile, extractFromUrl, guessMeeting, learnMaterial } from "@/lib/materials";
 import { gcrProvider } from "@/lib/providers/gcr";
 import { parseRubric, type RubricCriterion } from "@/lib/rubric";
@@ -204,34 +204,42 @@ export async function saveAssignmentSetup(assignmentId: string, formData: FormDa
   redirect(`/classroom/${a.courseId}?saved=${a.id}`);
 }
 
-/** Buat draf rubrik dengan Gemini berdasarkan instruksi tugas & materi yang dipilih. */
+/**
+ * Buat draf rubrik dengan Gemini berdasarkan instruksi tugas, isi materi yang dipilih,
+ * dan contoh jawaban mahasiswa dari GCR (agar kriteria sesuai format jawaban mereka).
+ */
 export async function generateRubric(
   assignmentId: string,
   instructions: string,
   materialIds: string[],
-): Promise<{ rubric?: RubricCriterion[]; error?: string }> {
+): Promise<{ rubric?: RubricCriterion[]; error?: string; samples?: number }> {
   const user = await requireUser();
   const a = await ownedAssignment(user.id, assignmentId);
-  const selected = materialIds.length
-    ? await db.select().from(materials).where(inArray(materials.id, materialIds))
-    : [];
-  const materiText = selected
-    .map((m) => `- ${m.title}\n  Ringkasan: ${m.summary ?? "-"}\n  Konsep kunci: ${m.keyConcepts ?? "-"}`)
-    .join("\n");
   try {
-    const res = await generateJson<{ rubric: RubricCriterion[] }>(
-      `Kamu asisten dosen. Buat rubrik penilaian untuk tugas berikut.
+    const [materi, samples] = await Promise.all([
+      materialsContext(materialIds),
+      // Gagal baca submission tidak menggagalkan pembuatan rubrik.
+      sampleSubmissionParts(user.id, a, a.course).catch(() => ({ parts: [] as GeminiPart[], count: 0, total: 0 })),
+    ]);
+    const prompt = `Kamu asisten dosen. Buat rubrik penilaian untuk tugas berikut.
 Kembalikan JSON {"rubric": [{"name": "...", "description": "indikator penilaian yang jelas", "weight": angka}]}
 dengan 3-6 kriteria dan total weight = 100. Gunakan Bahasa Indonesia.
-Kriteria harus mengacu pada konsep dalam materi yang dipilih.
+
+Aturan:
+- Kriteria harus spesifik untuk tugas ini (bukan generik), mengacu pada instruksi tugas dan konsep di MATERI ACUAN.
+- Jika ada CONTOH JAWABAN MAHASISWA, perhatikan format/bentuk jawaban mereka (mis. kode, laporan, esai, perhitungan,
+  diagram, screenshot) dan sesuaikan kriteria serta indikatornya agar bisa dinilai dari bentuk jawaban tersebut.
+- Contoh jawaban hanya untuk memahami format; JANGAN jadikan jawaban tertentu sebagai kunci jawaban.
 
 Judul tugas: ${a.title}
 Instruksi: ${instructions || a.instructions || a.description || "-"}
+${a.gradingNotes ? `Catatan penilaian dari dosen: ${a.gradingNotes}\n` : ""}
+MATERI ACUAN:
+${materi || "(belum ada materi dipilih)"}
 
-Materi acuan:
-${materiText || "(belum ada materi dipilih)"}`,
-    );
-    return { rubric: res.rubric };
+CONTOH JAWABAN MAHASISWA (${samples.count} dari ${samples.total} submission):${samples.count ? "" : "\n(belum ada submission)"}`;
+    const res = await generateJsonParts<{ rubric: RubricCriterion[] }>([{ text: prompt }, ...samples.parts]);
+    return { rubric: res.rubric, samples: samples.count };
   } catch (e) {
     return { error: geminiErrorMessage(e) };
   }

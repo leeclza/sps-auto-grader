@@ -223,3 +223,14 @@
   from { transform: scaleX(1); }
   to { transform: scaleX(0); }
 }
+
+/* Sembunyikan tombol naik/turun pada input angka. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
