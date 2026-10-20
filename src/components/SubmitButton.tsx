@@ -19,11 +19,13 @@ export function SubmitButton({
   disabled?: boolean;
   formAction?: (formData: FormData) => void | Promise<void>;
 }) {
-  const { pending } = useFormStatus();
+  const { pending, action } = useFormStatus();
+  // Spinner hanya di tombol yang diklik bila form punya beberapa formAction.
+  const busy = pending && (!formAction || action === formAction);
   return (
-    <button type="submit" className={className} disabled={pending || disabled} name={name} value={value} formAction={formAction} aria-busy={pending}>
-      {pending && <span className="spinner" aria-hidden="true" />}
-      {pending ? pendingText : children}
+    <button type="submit" className={className} disabled={pending || disabled} name={name} value={value} formAction={formAction} aria-busy={busy}>
+      {busy && <span className="spinner" aria-hidden="true" />}
+      {busy ? pendingText : children}
     </button>
   );
 }

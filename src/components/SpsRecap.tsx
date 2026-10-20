@@ -8,6 +8,9 @@ type Assignment = typeof assignments.$inferSelect;
 type Submission = typeof submissions.$inferSelect;
 
 /** Email kampus berformat nama.nim@...; ambil NIM dari angka sebelum "@". */
+/** Cocokkan nama kriteria tanpa peduli kapital/spasi (rubrik bisa diedit setelah dinilai). */
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 const nimFromEmail = (email: string | null) => email?.match(/(\d+)@/)?.[1] ?? "";
 
 /**
@@ -60,10 +63,9 @@ export function SpsRecap({
       st.email ?? "",
       ...cols.flatMap(({ a, rubric }) => {
         const s = byKey.get(`${studentId}:${a.id}`);
-        const done = s && (s.status === "graded" || s.status === "reviewed");
-        const scores: CriterionScore[] = done && s.breakdown ? JSON.parse(s.breakdown) : [];
+        const scores: CriterionScore[] = s?.breakdown ? JSON.parse(s.breakdown) : [];
         return [
-          ...rubric.map((c) => scores.find((x) => x.name === c.name)?.score ?? ""),
+          ...rubric.map((c) => scores.find((x) => sameName(x.name, c.name))?.score ?? ""),
           s?.finalScore ?? "",
         ];
       }),
@@ -85,7 +87,7 @@ export function SpsRecap({
           />
         )}
       </div>
-        <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm">
+        <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--line-strong) transparent" }}>
           <table className="w-full border-collapse">
             <thead>
               <tr>
@@ -137,13 +139,12 @@ export function SpsRecap({
                   {cols.map(({ a, rubric }) => {
                     const s = byKey.get(`${studentId}:${a.id}`);
                     const scores: CriterionScore[] = s?.breakdown ? JSON.parse(s.breakdown) : [];
-                    const done = s && (s.status === "graded" || s.status === "reviewed");
                     return [
                       ...rubric.map((c, j) => {
-                        const sc = scores.find((x) => x.name === c.name);
+                        const sc = scores.find((x) => sameName(x.name, c.name));
                         return (
                           <td key={`${a.id}:${c.name}`} title={sc?.comment} className={j === 0 ? groupBorder : ""}>
-                            {done && sc ? sc.score : <span className="text-muted">—</span>}
+                            {sc ? sc.score : <span className="text-muted">—</span>}
                           </td>
                         );
                       }),

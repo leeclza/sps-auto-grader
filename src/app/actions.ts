@@ -384,6 +384,35 @@ export async function gradeAssignment(assignmentId: string, all: boolean) {
   redirect(`/assignments/${a.id}/grades`);
 }
 
+/** Hentikan koreksi: antrean dikembalikan ke "pending" agar bisa dilanjutkan lewat "Koreksi dengan AI". */
+export async function stopGrading(assignmentId: string) {
+  const user = await requireUser();
+  const a = await ownedAssignment(user.id, assignmentId);
+  await db
+    .update(submissions)
+    .set({ status: "pending" })
+    .where(and(eq(submissions.assignmentId, a.id), eq(submissions.status, "processing")));
+  revalidatePath(`/assignments/${a.id}/grades`);
+  revalidatePath(`/classroom/${a.courseId}`);
+}
+
+/**
+ * Keputusan dosen atas submission yang terdeteksi mirip:
+ * "accepted" = tetap pakai nilai AI, "rejected" = nilai 0.
+ */
+export async function decideSimilarity(submissionId: string, decision: "accepted" | "rejected") {
+  const user = await requireUser();
+  const sub = await db.query.submissions.findFirst({ where: eq(submissions.id, submissionId) });
+  if (!sub) throw new Error("Submission tidak ditemukan");
+  const a = await ownedAssignment(user.id, sub.assignmentId);
+  await db
+    .update(submissions)
+    .set({ similarityDecision: decision, finalScore: decision === "rejected" ? 0 : sub.aiScore })
+    .where(eq(submissions.id, sub.id));
+  revalidatePath(`/assignments/${a.id}/grades`);
+  revalidatePath(`/classroom/${a.courseId}`);
+}
+
 export async function exportGradesToSheet(assignmentId: string) {
   const user = await requireUser();
   const a = await ownedAssignment(user.id, assignmentId);
