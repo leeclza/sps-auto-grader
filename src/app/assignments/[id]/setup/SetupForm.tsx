@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { generateRubric, saveAssignmentSetup } from "@/app/actions";
 import { SubmitButton } from "@/components/SubmitButton";
+import { MATERIAL_STATUS_LABEL } from "@/components/MaterialPicker";
 import { useToast } from "@/components/Toaster";
 import type { RubricCriterion } from "@/lib/rubric";
 
@@ -32,6 +34,12 @@ export function SetupForm({
   const toast = useToast();
   const [generating, startGenerating] = useTransition();
   const totalWeight = rubric.reduce((s, c) => s + (Number(c.weight) || 0), 0);
+  const formRef = useRef<HTMLFormElement>(null);
+  const confirmedRef = useRef(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Hanya materi "ready" yang bisa dipilih; yang sudah terpilih tetap bisa dilepas.
+  const locked = (m: MaterialOption) => m.status !== "ready" && !selected.has(m.id);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -49,7 +57,7 @@ export function SetupForm({
       const res = await generateRubric(assignment.id, instructions, [...selected]);
       if (res.rubric?.length) {
         setRubric(res.rubric);
-        toast({ tone: "ok", message: `Rubrik dibuat AI (${res.rubric.length} kriteria). Cek lalu simpan.` });
+        toast({ tone: "ok", message: `Rubrik dibuat AI (${res.rubric.length} kriteria${res.samples ? `, dari ${res.samples} contoh jawaban + materi` : ""}). Cek lalu simpan.` });
       } else {
         toast({ tone: "err", title: "Gagal membuat rubrik", message: res.error ?? "Gemini tidak mengembalikan rubrik." });
       }
@@ -61,7 +69,17 @@ export function SetupForm({
   }, {});
 
   return (
-    <form action={saveAssignmentSetup.bind(null, assignment.id)}>
+    <form
+      ref={formRef}
+      action={saveAssignmentSetup.bind(null, assignment.id)}
+      onSubmit={(e) => {
+        if (rubric.length > 0 && totalWeight !== 100 && !confirmedRef.current) {
+          e.preventDefault();
+          setConfirmOpen(true);
+        }
+        confirmedRef.current = false;
+      }}
+    >
       <div className="card mb-3.5">
         <label htmlFor="title">Nama Tugas</label>
         <input id="title" name="title" type="text" defaultValue={assignment.title} required />
@@ -94,11 +112,25 @@ export function SetupForm({
           <div key={subject}>
             <div className="mt-2 text-[13px] font-semibold text-muted">{subject}</div>
             {items.map((m) => (
-              <label className="my-2.5 flex cursor-pointer items-start gap-2.5 font-normal text-ink" key={m.id}>
-                <input type="checkbox" name="materialId" value={m.id} checked={selected.has(m.id)} onChange={() => toggle(m.id)} className="mt-[3px] flex-none" />
+              <label
+                key={m.id}
+                title={locked(m) ? "Pelajari materi ini dulu di halaman Materi" : undefined}
+                className={`my-2.5 flex items-start gap-2.5 font-normal text-ink ${locked(m) ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+              >
+                <input
+                  type="checkbox"
+                  name="materialId"
+                  value={m.id}
+                  checked={selected.has(m.id)}
+                  disabled={locked(m)}
+                  onChange={() => toggle(m.id)}
+                  className="mt-[3px] flex-none disabled:cursor-not-allowed"
+                />
                 <span>
                   {m.meeting ? <b>Pertemuan {m.meeting}</b> : null} {m.title}
-                  {m.status !== "ready" && <span className="badge badge-warn ml-1.5">{m.status}</span>}
+                  {m.status !== "ready" && (
+                    <span className="badge ml-1.5">{MATERIAL_STATUS_LABEL[m.status] ?? m.status}</span>
+                  )}
                 </span>
               </label>
             ))}
@@ -115,6 +147,11 @@ export function SetupForm({
             {generating ? "Membuat rubrik..." : "✨ Buat dengan AI"}
           </button>
         </div>
+        {rubric.length > 0 && totalWeight !== 100 && (
+          <p className="mt-2 text-[13px] text-warn">
+            ⚠ Total bobot harus 100% (sekarang {totalWeight}%, {totalWeight < 100 ? `kurang ${100 - totalWeight}%` : `lebih ${totalWeight - 100}%`}).
+          </p>
+        )}
         <div className="mt-3">
           {rubric.map((c, i) => (
             <div className="mb-2 grid animate-[rise_0.3s_var(--ease-out-soft)_both] grid-cols-1 gap-2 md:grid-cols-[1.2fr_2fr_90px_auto]" key={i}>
@@ -140,6 +177,49 @@ export function SetupForm({
       </div>
 
       <SubmitButton pendingText="Menyimpan...">Simpan Setup</SubmitButton>
+
+      {/* Portal ke body: ancestor beranimasi (transform) membuat `fixed` tidak relatif ke layar. */}
+      {confirmOpen && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setConfirmOpen(false)}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="confirm-weight-title"
+            className="card w-full max-w-sm animate-[rise_0.3s_var(--ease-out-soft)_both]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="confirm-weight-title" className="m-0">Total bobot belum 100%</h2>
+            <p className="mt-2 text-muted">
+              Total bobot rubrik sekarang <b className="text-warn">{totalWeight}%</b>. Yakin tetap simpan?
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn"
+                ref={(el) => el?.focus({ preventScroll: true })}
+                onClick={() => setConfirmOpen(false)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setConfirmOpen(false);
+                  confirmedRef.current = true;
+                  formRef.current?.requestSubmit();
+                }}
+              >
+                Tetap simpan
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </form>
   );
 }

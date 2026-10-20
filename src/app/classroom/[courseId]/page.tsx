@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { assignments, courses, materials, submissions } from "@/db/schema";
 import { SpsRecap } from "@/components/SpsRecap";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { CheckedSubmitButton } from "@/components/CheckedSubmitButton";
 import { MaterialPicker } from "@/components/MaterialPicker";
 import { parseRubric } from "@/lib/rubric";
 
@@ -37,7 +38,7 @@ export default async function CoursePage({
     ? await db.select().from(submissions).where(inArray(submissions.assignmentId, importedIds))
     : [];
   const allMaterials = await db
-    .select({ id: materials.id, title: materials.title, subject: materials.subject, meeting: materials.meeting })
+    .select({ id: materials.id, title: materials.title, subject: materials.subject, meeting: materials.meeting, status: materials.status })
     .from(materials)
     .orderBy(asc(materials.subject), asc(materials.meeting), asc(materials.title));
   const neverSynced = course.studentCount === null;
@@ -75,7 +76,7 @@ export default async function CoursePage({
         </div>
       ) : (
         <form action={importAssignments.bind(null, course.id)}>
-          <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm">
+          <div className="overflow-x-auto md:overflow-visible rounded-card border border-line bg-surface shadow-sm">
             <table className="w-full border-collapse">
               <thead>
                 <tr>
@@ -140,7 +141,7 @@ export default async function CoursePage({
           </div>
           {course.assignments.some((a) => !a.imported) && (
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <SubmitButton pendingText="Menambahkan...">Tambahkan untuk dinilai</SubmitButton>
+              <CheckedSubmitButton name="assignmentId" pendingText="Menambahkan...">Tambahkan untuk dinilai</CheckedSubmitButton>
               <span className="text-[13px] text-muted">Centang tugas yang ingin dikoreksi AI. Nilainya akan muncul di Rekap Nilai SPS di bawah.</span>
             </div>
           )}
