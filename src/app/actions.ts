@@ -362,7 +362,8 @@ export async function deleteMaterial(materialId: string) {
 
 /**
  * Tarik submission terbaru dari GCR, lalu nilai yang belum/gagal dinilai di background.
- * `all` = nilai ulang semua submission (mis. setelah rubrik diubah).
+ * `all` = reset semua nilai ke "pending" (mis. setelah rubrik diubah) tanpa langsung menilai;
+ * koreksi dimulai saat guru menekan "Koreksi dengan AI".
  */
 export async function gradeAssignment(assignmentId: string, all: boolean) {
   const user = await requireUser();
@@ -370,21 +371,18 @@ export async function gradeAssignment(assignmentId: string, all: boolean) {
   if (!parseRubric(a.rubric).length) throw new Error("Buat rubrik dulu di halaman Setup.");
 
   await pullSubmissions(user.id, a, a.course);
-  await db
-    .update(submissions)
-    .set({
-      status: "processing",
-      error: null,
-      // Nilai ulang semua: kosongkan hasil lama agar tidak tertukar dengan nilai baru.
-      ...(all ? { aiScore: null, finalScore: null, breakdown: null, feedback: null, gradedAt: null } : {}),
-    })
-    .where(
-      and(
-        eq(submissions.assignmentId, a.id),
-        all ? notInArray(submissions.status, ["processing"]) : inArray(submissions.status, ["pending", "error"]),
-      ),
-    );
-  after(() => gradeProcessing(user.id, a.id));
+  if (all) {
+    await db
+      .update(submissions)
+      .set({ status: "pending", error: null, aiScore: null, finalScore: null, breakdown: null, feedback: null, gradedAt: null })
+      .where(and(eq(submissions.assignmentId, a.id), notInArray(submissions.status, ["processing"])));
+  } else {
+    await db
+      .update(submissions)
+      .set({ status: "processing", error: null })
+      .where(and(eq(submissions.assignmentId, a.id), inArray(submissions.status, ["pending", "error"])));
+    after(() => gradeProcessing(user.id, a.id));
+  }
   revalidatePath(`/assignments/${a.id}/grades`);
   redirect(`/assignments/${a.id}/grades`);
 }

@@ -39,8 +39,8 @@ export function RegradeAllButton({
             submitRef.current?.querySelector("button")?.click();
           }}
         >
-          Semua nilai, rincian, dan feedback dari <b className="text-ink">{count} submission</b> akan dihapus lalu dinilai ulang
-          oleh AI, termasuk nilai yang sudah Anda koreksi manual. Anda yakin?
+          Semua nilai, rincian, dan feedback dari <b className="text-ink">{count} submission</b> akan dihapus, termasuk nilai
+          yang sudah Anda koreksi manual. Setelah itu klik “Koreksi dengan AI” untuk mulai menilai. Anda yakin?
         </ConfirmDialog>
       )}
     </>
