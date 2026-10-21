@@ -7,6 +7,7 @@ import { FeedbackCell } from "@/components/FeedbackCell";
 import { SimilarityAction } from "@/components/SimilarityAction";
 import type { SimilarityMatch } from "@/lib/similarity";
 import { SubmitButton } from "@/components/SubmitButton";
+import { RegradeAllButton } from "@/components/RegradeAllButton";
 import { ToastOnMount } from "@/components/Toaster";
 import { db } from "@/db";
 import { assignments, submissions } from "@/db/schema";
@@ -93,9 +94,7 @@ export default async function GradesPage({
                   : "Koreksi dengan AI"}
               </SubmitButton>
             )}
-            <SubmitButton className="btn" pendingText="Memproses..." formAction={gradeAssignment.bind(null, assignment.id, true)} disabled={processing > 0 || subs.length === 0}>
-              Nilai ulang semua
-            </SubmitButton>
+            <RegradeAllButton action={gradeAssignment.bind(null, assignment.id, true)} count={subs.length} disabled={processing > 0 || subs.length === 0} />
             <SubmitButton className="btn" pendingText="Mengekspor..." formAction={exportGradesToSheet.bind(null, assignment.id)} disabled={subs.length === 0}>
               Perbarui Spreadsheet
             </SubmitButton>
