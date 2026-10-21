@@ -372,7 +372,12 @@ export async function gradeAssignment(assignmentId: string, all: boolean) {
   await pullSubmissions(user.id, a, a.course);
   await db
     .update(submissions)
-    .set({ status: "processing", error: null })
+    .set({
+      status: "processing",
+      error: null,
+      // Nilai ulang semua: kosongkan hasil lama agar tidak tertukar dengan nilai baru.
+      ...(all ? { aiScore: null, finalScore: null, breakdown: null, feedback: null, gradedAt: null } : {}),
+    })
     .where(
       and(
         eq(submissions.assignmentId, a.id),
