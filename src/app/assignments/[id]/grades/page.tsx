@@ -44,12 +44,15 @@ export default async function GradesPage({
   const needsCheck = (s: (typeof assignment.submissions)[number]) => !s.similarityDecision && matchesOf(s).length > 0;
   const groupKey = (s: (typeof assignment.submissions)[number]) =>
     [s.studentName ?? "", ...matchesOf(s).map((m) => m.withName)].sort((x, y) => x.localeCompare(y))[0];
+  // Samakan dengan GCR "Sort by first name": abjad nama lengkap, abaikan huruf besar/kecil.
+  const byName = (a: (typeof assignment.submissions)[number], b: (typeof assignment.submissions)[number]) =>
+    (a.studentName ?? "").trim().localeCompare((b.studentName ?? "").trim(), "id", { sensitivity: "base" });
   const subs = [...assignment.submissions].sort((a, b) =>
     needsCheck(a) !== needsCheck(b)
       ? needsCheck(a) ? -1 : 1
       : needsCheck(a)
-        ? groupKey(a).localeCompare(groupKey(b)) || (a.studentName ?? "").localeCompare(b.studentName ?? "")
-        : 0,
+        ? groupKey(a).localeCompare(groupKey(b)) || byName(a, b)
+        : byName(a, b),
   );
   const flagged = subs.filter(needsCheck).length;
   const processing = subs.filter((s) => s.status === "processing").length;
