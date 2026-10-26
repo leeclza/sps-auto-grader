@@ -4,8 +4,8 @@ import { useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SubmitButton } from "@/components/SubmitButton";
 
-/** Tombol "Nilai ulang semua" dengan konfirmasi karena menghapus nilai yang sudah ada. */
-export function RegradeAllButton({
+/** Tombol "Reset semua nilai" dengan konfirmasi karena menghapus nilai yang sudah ada. */
+export function ResetGradesButton({
   action,
   count,
   disabled,
@@ -20,18 +20,18 @@ export function RegradeAllButton({
   return (
     <>
       <button type="button" className="btn" disabled={disabled} onClick={() => setOpen(true)}>
-        Nilai ulang semua
+        Reset semua nilai
       </button>
       {/* Tombol submit asli disembunyikan; diklik setelah dikonfirmasi agar tetap memakai form & status pending. */}
       <div ref={submitRef} hidden>
-        <SubmitButton className="btn" pendingText="Memproses..." formAction={action}>
-          Nilai ulang semua
+        <SubmitButton className="btn" pendingText="Mereset..." formAction={action}>
+          Reset semua nilai
         </SubmitButton>
       </div>
       {open && (
         <ConfirmDialog
-          title="Nilai ulang semua?"
-          confirmText="Nilai ulang"
+          title="Reset semua nilai?"
+          confirmText="Reset"
           danger
           onCancel={() => setOpen(false)}
           onConfirm={() => {
