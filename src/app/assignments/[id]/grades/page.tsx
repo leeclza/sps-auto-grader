@@ -1,18 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { exportGradesToSheet, gradeAssignment, stopGrading } from "@/app/actions";
+import { exportGradesToSheet, gradeAssignment, resetGrades, stopGrading } from "@/app/actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { FeedbackCell } from "@/components/FeedbackCell";
 import { SimilarityAction } from "@/components/SimilarityAction";
 import type { SimilarityMatch } from "@/lib/similarity";
 import { SubmitButton } from "@/components/SubmitButton";
-import { RegradeAllButton } from "@/components/RegradeAllButton";
+import { ResetGradesButton } from "@/components/ResetGradesButton";
 import { ToastOnMount } from "@/components/Toaster";
 import { db } from "@/db";
 import { assignments, submissions } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { sheetUrl, type CriterionScore } from "@/lib/grading";
+import { byStudentName, sheetUrl, type CriterionScore } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -44,9 +44,7 @@ export default async function GradesPage({
   const needsCheck = (s: (typeof assignment.submissions)[number]) => !s.similarityDecision && matchesOf(s).length > 0;
   const groupKey = (s: (typeof assignment.submissions)[number]) =>
     [s.studentName ?? "", ...matchesOf(s).map((m) => m.withName)].sort((x, y) => x.localeCompare(y))[0];
-  // Samakan dengan GCR "Sort by first name": abjad nama lengkap, abaikan huruf besar/kecil.
-  const byName = (a: (typeof assignment.submissions)[number], b: (typeof assignment.submissions)[number]) =>
-    (a.studentName ?? "").trim().localeCompare((b.studentName ?? "").trim(), "id", { sensitivity: "base" });
+  const byName = byStudentName;
   const subs = [...assignment.submissions].sort((a, b) =>
     needsCheck(a) !== needsCheck(b)
       ? needsCheck(a) ? -1 : 1
@@ -56,6 +54,8 @@ export default async function GradesPage({
   );
   const flagged = subs.filter(needsCheck).length;
   const processing = subs.filter((s) => s.status === "processing").length;
+  // Antrean dikoreksi FIFO menurut nama; hanya yang paling depan yang sedang dinilai, sisanya menunggu.
+  const currentId = [...subs].sort(byStudentName).find((s) => s.status === "processing")?.id;
   const graded = subs.filter((s) => s.status === "graded" || s.status === "reviewed");
   const avg = graded.length ? graded.reduce((s, x) => s + (x.finalScore ?? 0), 0) / graded.length : null;
 
@@ -91,13 +91,13 @@ export default async function GradesPage({
                 ■ Hentikan koreksi
               </SubmitButton>
             ) : (
-              <SubmitButton pendingText="Mengambil submission..." formAction={gradeAssignment.bind(null, assignment.id, false)}>
+              <SubmitButton pendingText="Mengambil submission..." formAction={gradeAssignment.bind(null, assignment.id)}>
                 {subs.some((s) => s.status === "pending" || s.status === "error") && subs.some((s) => s.status === "graded" || s.status === "reviewed")
                   ? "Lanjutkan koreksi"
                   : "Koreksi dengan AI"}
               </SubmitButton>
             )}
-            <RegradeAllButton action={gradeAssignment.bind(null, assignment.id, true)} count={subs.length} disabled={processing > 0 || subs.length === 0} />
+            <ResetGradesButton action={resetGrades.bind(null, assignment.id)} count={subs.length} disabled={processing > 0 || subs.length === 0} />
             <SubmitButton className="btn" pendingText="Mengekspor..." formAction={exportGradesToSheet.bind(null, assignment.id)} disabled={subs.length === 0}>
               Perbarui Spreadsheet
             </SubmitButton>
@@ -126,7 +126,10 @@ export default async function GradesPage({
                 <tbody>
                   {subs.map((s) => {
                     const scores: CriterionScore[] = s.breakdown ? JSON.parse(s.breakdown) : [];
-                    const st = STATUS[s.status] ?? { label: s.status, cls: "badge" };
+                    const st =
+                      s.status === "processing" && s.id !== currentId
+                        ? { label: "Menunggu antrean", cls: "badge" }
+                        : (STATUS[s.status] ?? { label: s.status, cls: "badge" });
                     const matches = matchesOf(s);
                     return (
                       <tr key={s.id} className={needsCheck(s) ? "bg-warn-bg" : undefined}>

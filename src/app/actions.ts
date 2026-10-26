@@ -365,26 +365,31 @@ export async function deleteMaterial(materialId: string) {
  * `all` = reset semua nilai ke "pending" (mis. setelah rubrik diubah) tanpa langsung menilai;
  * koreksi dimulai saat guru menekan "Koreksi dengan AI".
  */
-export async function gradeAssignment(assignmentId: string, all: boolean) {
+export async function gradeAssignment(assignmentId: string) {
   const user = await requireUser();
   const a = await ownedAssignment(user.id, assignmentId);
   if (!parseRubric(a.rubric).length) throw new Error("Buat rubrik dulu di halaman Setup.");
 
   await pullSubmissions(user.id, a, a.course);
-  if (all) {
-    await db
-      .update(submissions)
-      .set({ status: "pending", error: null, aiScore: null, finalScore: null, breakdown: null, feedback: null, gradedAt: null })
-      .where(and(eq(submissions.assignmentId, a.id), notInArray(submissions.status, ["processing"])));
-  } else {
-    await db
-      .update(submissions)
-      .set({ status: "processing", error: null })
-      .where(and(eq(submissions.assignmentId, a.id), inArray(submissions.status, ["pending", "error"])));
-    after(() => gradeProcessing(user.id, a.id));
-  }
+  await db
+    .update(submissions)
+    .set({ status: "processing", error: null })
+    .where(and(eq(submissions.assignmentId, a.id), inArray(submissions.status, ["pending", "error"])));
+  after(() => gradeProcessing(user.id, a.id));
   revalidatePath(`/assignments/${a.id}/grades`);
   redirect(`/assignments/${a.id}/grades`);
+}
+
+/** Reset semua nilai: kosongkan nilai, rincian, dan feedback; submission kembali "pending" tanpa langsung dikoreksi. */
+export async function resetGrades(assignmentId: string) {
+  const user = await requireUser();
+  const a = await ownedAssignment(user.id, assignmentId);
+  await db
+    .update(submissions)
+    .set({ status: "pending", error: null, aiScore: null, finalScore: null, breakdown: null, feedback: null, gradedAt: null })
+    .where(and(eq(submissions.assignmentId, a.id), notInArray(submissions.status, ["processing"])));
+  revalidatePath(`/assignments/${a.id}/grades`);
+  revalidatePath(`/classroom/${a.courseId}`);
 }
 
 /** Hentikan koreksi: antrean dikembalikan ke "pending" agar bisa dilanjutkan lewat "Koreksi dengan AI". */

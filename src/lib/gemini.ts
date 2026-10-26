@@ -61,7 +61,21 @@ export async function generateJson<T>(prompt: string): Promise<T> {
   return JSON.parse(res.text ?? "{}") as T;
 }
 
-export type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+export type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
+  | { fileData: { fileUri: string; mimeType: string } };
+
+/** Unggah file besar lewat Files API (inline dibatasi ~20MB per request); file otomatis terhapus setelah 48 jam. */
+export async function uploadFile(buf: Buffer, mimeType: string): Promise<GeminiPart> {
+  let file = await ai().files.upload({ file: new Blob([new Uint8Array(buf)], { type: mimeType }), config: { mimeType } });
+  for (let i = 0; file.state === "PROCESSING" && i < 60; i++) {
+    await sleep(2000);
+    file = await ai().files.get({ name: file.name! });
+  }
+  if (file.state !== "ACTIVE") throw new Error(`Gemini gagal memproses file (${file.state ?? "tanpa status"}).`);
+  return { fileData: { fileUri: file.uri!, mimeType } };
+}
 
 /** Seperti generateJson, tapi bisa menyertakan file (PDF/gambar) sebagai inline data. */
 export async function generateJsonParts<T>(parts: GeminiPart[]): Promise<T> {
