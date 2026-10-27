@@ -4,7 +4,7 @@ import { importAssignments, setImported, syncCourse } from "@/app/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { ToastOnMount } from "@/components/Toaster";
 import { requireUser } from "@/lib/auth";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { assignments, courses, materials, submissions } from "@/db/schema";
 import { SpsRecap } from "@/components/SpsRecap";
@@ -18,11 +18,11 @@ export default async function CoursePage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ saved?: string }>;
+  searchParams: Promise<{ saved?: string; rekap?: string }>;
 }) {
   const user = await requireUser();
   const { courseId } = await params;
-  const { saved } = await searchParams;
+  const { saved, rekap } = await searchParams;
   const course = await db.query.courses.findFirst({
     where: and(eq(courses.id, courseId), eq(courses.userId, user.id)),
     with: {
@@ -33,9 +33,11 @@ export default async function CoursePage({
     },
   });
   if (!course) notFound();
-  const importedIds = course.assignments.filter((a) => a.imported).map((a) => a.id);
-  const recapSubs = importedIds.length
-    ? await db.select().from(submissions).where(inArray(submissions.assignmentId, importedIds))
+  // Rekap ditampilkan per tugas (tidak digabung); hanya tugas yang sudah di-setup rubriknya.
+  const recapTasks = course.assignments.filter((a) => a.imported && parseRubric(a.rubric).length > 0);
+  const recapTask = recapTasks.find((a) => a.id === rekap) ?? recapTasks[0];
+  const recapSubs = recapTask
+    ? await db.select().from(submissions).where(eq(submissions.assignmentId, recapTask.id))
     : [];
   const allMaterials = await db
     .select({ id: materials.id, title: materials.title, subject: materials.subject, meeting: materials.meeting, status: materials.status })
@@ -151,7 +153,9 @@ export default async function CoursePage({
       <AutoRefresh active={recapSubs.some((s) => s.status === "processing")} />
       <SpsRecap
         courseName={course.name}
-        assignments={course.assignments.filter((a) => a.imported)}
+        courseId={course.id}
+        tasks={recapTasks}
+        assignment={recapTask}
         submissions={recapSubs}
       />
     </>
