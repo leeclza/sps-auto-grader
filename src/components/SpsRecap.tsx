@@ -14,19 +14,24 @@ const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
 const nimFromEmail = (email: string | null) => email?.match(/(\d+)@/)?.[1] ?? "";
 
 /**
- * Rekap nilai SPS per course: baris = mahasiswa; tiap tugas punya kolom per kriteria rubrik
+ * Rekap nilai SPS satu tugas (dipilih lewat tab): baris = mahasiswa; kolom per kriteria rubrik
  * (skor 0-100 + bobot) dan kolom Total (skala nilai maks tugas).
  */
 export function SpsRecap({
   courseName,
-  assignments,
+  courseId,
+  tasks,
+  assignment,
   submissions,
 }: {
   courseName: string;
-  assignments: Assignment[];
+  courseId: string;
+  tasks: Assignment[];
+  assignment: Assignment | undefined;
   submissions: Submission[];
 }) {
-  if (assignments.length === 0) return null;
+  if (!assignment) return null;
+  const assignments = [assignment];
 
   const taskLabel = assignments.map((a) => a.title).join(", ");
 
@@ -87,6 +92,21 @@ export function SpsRecap({
           />
         )}
       </div>
+      {tasks.length > 1 && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {tasks.map((t) => (
+            <Link
+              key={t.id}
+              href={`/classroom/${courseId}?rekap=${t.id}`}
+              scroll={false}
+              className={`btn ${t.id === assignment.id ? "btn-primary" : ""}`}
+              aria-current={t.id === assignment.id ? "page" : undefined}
+            >
+              {t.title}
+            </Link>
+          ))}
+        </div>
+      )}
         <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--line-strong) transparent" }}>
           <table className="w-full border-collapse">
             <thead>
