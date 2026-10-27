@@ -100,6 +100,8 @@ export const assignments = pgTable(
     // Rubrik disimpan sebagai JSON: [{ name, description, weight }]
     rubric: text("rubric"),
     gradingNotes: text("gradingNotes"),
+    // Tugas kelompok: file sama antar-anggota yang saling tercantum namanya tidak dianggap mirip
+    groupWork: boolean("groupWork").notNull().default(false),
     // Spreadsheet rekap nilai SPS (dibuat otomatis saat koreksi pertama)
     spreadsheetId: text("spreadsheetId"),
     updatedAt: ts("updatedAt").notNull().defaultNow().$onUpdate(() => new Date()),

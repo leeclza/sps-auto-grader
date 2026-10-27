@@ -36,7 +36,7 @@ export function SetupForm({
   selectedMaterialIds,
   initialRubric,
 }: {
-  assignment: { id: string; title: string; description: string; instructions: string; gradingNotes: string; maxScore: number };
+  assignment: { id: string; title: string; description: string; instructions: string; gradingNotes: string; groupWork: boolean; maxScore: number };
   materials: MaterialOption[];
   selectedMaterialIds: string[];
   initialRubric: RubricCriterion[];
@@ -228,6 +228,16 @@ export function SetupForm({
           defaultValue={assignment.gradingNotes}
           placeholder="Mis. toleransi typo, wajib ada flowchart, bahasa pemrograman bebas, dll."
         />
+
+        <label className="mt-4 flex cursor-pointer items-start gap-2.5 font-normal text-ink">
+          <input type="checkbox" name="groupWork" defaultChecked={assignment.groupWork} className="mt-[3px] flex-none" />
+          <span>
+            <b>Tugas kelompok</b>
+            <span className="block text-[13px] text-muted">
+              File yang sama tidak dianggap mirip bila nama/NIM pengumpulnya tercantum di file tersebut.
+            </span>
+          </span>
+        </label>
       </div>
 
       <SubmitButton pendingText="Menyimpan...">Simpan Setup</SubmitButton>

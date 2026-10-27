@@ -106,10 +106,22 @@ function passages(a: Word[], b: Word[], bShingles: Map<string, number>, ignored:
     });
 }
 
+const normText = (t: string) => ` ${t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
+
+/** Apakah mahasiswa tercantum di teks (NIM dari email, nama lengkap, atau dua kata pertama nama). */
+function listedIn(text: string, name: string | null, email: string | null) {
+  const nim = email?.match(/\d{6,}/)?.[0];
+  if (nim && text.includes(` ${nim} `)) return true;
+  const parts = normText(name ?? "").trim().split(" ").filter(Boolean);
+  if (parts.length < 2) return false;
+  return text.includes(` ${parts.join(" ")} `) || text.includes(` ${parts.slice(0, 2).join(" ")} `);
+}
+
 /**
  * Bandingkan teks semua submission satu tugas. Yang memiliki potongan teks identik cukup panjang
  * ditandai mirip beserta buktinya. Teks yang muncul di banyak submission (template, soal, kop)
- * dan teks dari instruksi tugas diabaikan.
+ * dan teks dari instruksi tugas diabaikan. Bila tugas ditandai kelompok, pasangan yang saling tercantum
+ * namanya/NIM-nya di file masing-masing dianggap satu kelompok dan tidak ditandai.
  */
 export async function detectSimilarity(assignmentId: string) {
   const assignment = await db.query.assignments.findFirst({ where: eq(assignments.id, assignmentId) });
@@ -120,7 +132,8 @@ export async function detectSimilarity(assignmentId: string) {
     .map((s) => {
       const segments: TextSegment[] = s.textSegments ? JSON.parse(s.textSegments) : [];
       const words = toWords(segments);
-      return { sub: s, words, shingles: shingleSet(words) };
+      const text = normText(segments.map((g) => g.text).join("\n"));
+      return { sub: s, words, text, shingles: shingleSet(words) };
     })
     .filter((d) => d.shingles.size > 0);
 
@@ -137,7 +150,9 @@ export async function detectSimilarity(assignmentId: string) {
       else owners.set(s, [idx]);
     }
   });
-  const cap = Math.max(3, Math.ceil(docs.length * 0.2));
+  // Tugas kelompok: satu file memang dikumpulkan banyak orang, jadi batas "template" tidak dipakai
+  // (kalau dipakai, penumpang di kelompok besar bisa lolos).
+  const cap = assignment.groupWork ? Infinity : Math.max(3, Math.ceil(docs.length * 0.2));
   const pairCount = new Map<string, number>();
   for (const [s, list] of owners) {
     if (list.length < 2) continue;
@@ -153,6 +168,7 @@ export async function detectSimilarity(assignmentId: string) {
   }
 
   const matches = new Map<string, SimilarityMatch[]>();
+  const autoReject = new Set<string>();
   for (const [key, shared] of pairCount) {
     if (shared < MIN_SHARED) continue;
     const [i, j] = key.split(":").map(Number);
@@ -170,13 +186,39 @@ export async function detectSimilarity(assignmentId: string) {
       });
       matches.set(x.sub.id, list);
     };
-    add(a, b);
-    add(b, a);
+    if (!assignment.groupWork) {
+      add(a, b);
+      add(b, a);
+      continue;
+    }
+    // Tugas kelompok: yang namanya tidak tercantum di file yang ia kumpulkan berarti bukan
+    // anggota kelompok tersebut → ditandai dan otomatis ditolak (nilai 0). Anggota yang
+    // tercantum tidak ikut ditandai hanya karena filenya dipakai orang lain.
+    const aIn = listedIn(a.text, a.sub.studentName, a.sub.studentEmail);
+    const bIn = listedIn(b.text, b.sub.studentName, b.sub.studentEmail);
+    if (aIn && bIn && listedIn(a.text, b.sub.studentName, b.sub.studentEmail) && listedIn(b.text, a.sub.studentName, a.sub.studentEmail))
+      continue;
+    if (!aIn) {
+      add(a, b);
+      if (bIn) autoReject.add(a.sub.id);
+    }
+    if (!bIn) {
+      add(b, a);
+      if (aIn) autoReject.add(b.sub.id);
+    }
+    // Dua kelompok berbeda (keduanya tercantum di file masing-masing) tapi isinya sama.
+    if (aIn && bIn) {
+      add(a, b);
+      add(b, a);
+    }
   }
 
   for (const s of subs) {
     const found = (matches.get(s.id) ?? []).sort((x, y) => y.sharedWords - x.sharedWords);
-    const decision = found.length ? s.similarityDecision : null;
+    // Keputusan "terima" dari dosen tetap dihormati walau otomatis ditolak.
+    const decision = found.length
+      ? s.similarityDecision ?? (autoReject.has(s.id) ? "rejected" : null)
+      : null;
     await db
       .update(submissions)
       .set({
