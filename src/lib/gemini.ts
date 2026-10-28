@@ -26,10 +26,26 @@ function enqueue<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Kuota harian Gemini reset tiap tengah malam waktu Pacific (America/Los_Angeles). */
+function dailyQuotaReset(now = new Date()) {
+  const tz = "America/Los_Angeles";
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", hour: "numeric", minute: "numeric", second: "numeric" })
+      .formatToParts(now)
+      .map((p) => [p.type, Number(p.value)]),
+  );
+  const msLeft = ((23 - parts.hour) * 3600 + (59 - parts.minute) * 60 + (60 - parts.second)) * 1000;
+  const at = new Date(now.getTime() + msLeft);
+  const h = Math.floor(msLeft / 3_600_000);
+  const m = Math.ceil((msLeft % 3_600_000) / 60_000);
+  const clock = at.toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" });
+  return `${h ? `${h} jam ` : ""}${m} menit lagi (pukul ${clock} WIB)`;
+}
+
 /** Ubah error mentah Gemini (JSON panjang) jadi pesan singkat yang bisa dibaca. */
 export function geminiErrorMessage(e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
-  if (/PerDay/i.test(msg)) return "Kuota harian Gemini habis. Coba lagi besok.";
+  if (/PerDay/i.test(msg)) return `Kuota harian Gemini habis. Reset ${dailyQuotaReset()}.`;
   if (/\b429\b|RESOURCE_EXHAUSTED/.test(msg)) return "Batas request Gemini per menit tercapai. Coba lagi sebentar.";
   if (/\b503\b|UNAVAILABLE/.test(msg)) return "Server Gemini sedang sibuk. Coba lagi beberapa menit lagi.";
   return msg.length > 300 ? msg.slice(0, 300) + "…" : msg;
