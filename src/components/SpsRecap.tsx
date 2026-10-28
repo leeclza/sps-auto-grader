@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
+import { FeedbackCell } from "@/components/FeedbackCell";
 import type { assignments, submissions } from "@/db/schema";
 import { sheetUrl, type CriterionScore } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
@@ -59,6 +60,7 @@ export function SpsRecap({
       ...cols.flatMap(({ a, rubric }) => [
         ...rubric.map((c) => `${a.title} - ${c.name} (${c.weight}%)`),
         `${a.title} - Total Nilai (maks ${a.maxScore})`,
+        `${a.title} - Feedback`,
       ]),
     ],
     ...rows.map(([studentId, st], i) => [
@@ -72,6 +74,7 @@ export function SpsRecap({
         return [
           ...rubric.map((c) => scores.find((x) => sameName(x.name, c.name))?.score ?? ""),
           s?.finalScore ?? "",
+          s?.feedback ?? "",
         ];
       }),
     ]),
@@ -115,7 +118,7 @@ export function SpsRecap({
                 <th rowSpan={2}>NIM</th>
                 <th rowSpan={2}>Mahasiswa</th>
                 {cols.map(({ a, rubric }) => (
-                  <th key={a.id} colSpan={rubric.length + 1} className={`${groupBorder} text-center`}>
+                  <th key={a.id} colSpan={rubric.length + 2} className={`${groupBorder} text-center`}>
                     <Link href={`/assignments/${a.id}/grades`}>{a.title}</Link>
                     {a.spreadsheetId && (
                       <span className="text-[12px] font-normal normal-case">
@@ -137,13 +140,14 @@ export function SpsRecap({
                     Total Nilai
                     <div className="font-normal text-muted">maks {a.maxScore}</div>
                   </th>,
+                  <th key={`${a.id}:feedback`} className="text-[12px] normal-case">Feedback</th>,
                 ])}
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={3 + cols.reduce((n, c) => n + c.rubric.length + 1, 0)} className="text-muted">
+                  <td colSpan={3 + cols.reduce((n, c) => n + c.rubric.length + 2, 0)} className="text-muted">
                     Belum ada nilai. Lengkapi materi &amp; rubrik tiap tugas, lalu klik <b>Koreksi</b>.
                   </td>
                 </tr>
@@ -180,6 +184,14 @@ export function SpsRecap({
                         ) : (
                           <span className="text-[13px] text-muted">Belum dinilai</span>
                         )}
+                      </td>,
+                      <td key={`${a.id}:feedback`}>
+                        <FeedbackCell
+                          student={st.name}
+                          text={(s?.status === "error" ? s.error : s?.feedback) ?? ""}
+                          error={s?.status === "error"}
+                          comments={scores}
+                        />
                       </td>,
                     ];
                   })}
