@@ -102,6 +102,9 @@ export const assignments = pgTable(
     gradingNotes: text("gradingNotes"),
     // Tugas kelompok: file sama antar-anggota yang saling tercantum namanya tidak dianggap mirip
     groupWork: boolean("groupWork").notNull().default(false),
+    // Nilai minimal: bila ≥ floorMinCriteria komponen (bobot > 10%) ada, total minimal floorScore
+    floorScore: doublePrecision("floorScore"),
+    floorMinCriteria: integer("floorMinCriteria"),
     // Spreadsheet rekap nilai SPS (dibuat otomatis saat koreksi pertama)
     spreadsheetId: text("spreadsheetId"),
     updatedAt: ts("updatedAt").notNull().defaultNow().$onUpdate(() => new Date()),

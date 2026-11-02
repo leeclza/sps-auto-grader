@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { importAssignments, setImported, syncCourse } from "@/app/actions";
+import { importAssignments, setImported, stopGrading, syncCourse } from "@/app/actions";
 import { SubmitButton } from "@/components/SubmitButton";
 import { ToastOnMount } from "@/components/Toaster";
 import { requireUser } from "@/lib/auth";
@@ -11,6 +11,7 @@ import { SpsRecap } from "@/components/SpsRecap";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { CheckedSubmitButton } from "@/components/CheckedSubmitButton";
 import { MaterialPicker } from "@/components/MaterialPicker";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { parseRubric } from "@/lib/rubric";
 
 export default async function CoursePage({
@@ -33,6 +34,19 @@ export default async function CoursePage({
     },
   });
   if (!course) notFound();
+  // Progres koreksi per tugas: selesai bila ada submission dan semuanya sudah dinilai.
+  const progressRows = await db
+    .select({ assignmentId: submissions.assignmentId, status: submissions.status, n: sql<number>`count(*)::int` })
+    .from(submissions)
+    .innerJoin(assignments, eq(assignments.id, submissions.assignmentId))
+    .where(eq(assignments.courseId, course.id))
+    .groupBy(submissions.assignmentId, submissions.status);
+  const progressOf = (id: string) => {
+    const rows = progressRows.filter((r) => r.assignmentId === id);
+    const total = rows.reduce((s, r) => s + r.n, 0);
+    const done = rows.filter((r) => r.status === "graded" || r.status === "reviewed").reduce((s, r) => s + r.n, 0);
+    return { total, done, finished: total > 0 && done === total, running: rows.some((r) => r.status === "processing") };
+  };
   // Rekap ditampilkan per tugas (tidak digabung); hanya tugas yang sudah di-setup rubriknya.
   const recapTasks = course.assignments.filter((a) => a.imported && parseRubric(a.rubric).length > 0);
   const recapTask = recapTasks.find((a) => a.id === rekap) ?? recapTasks[0];
@@ -93,6 +107,7 @@ export default async function CoursePage({
                 {course.assignments.map((a) => {
                   const hasRubric = parseRubric(a.rubric).length > 0;
                   const ready = a.imported && a.materials.length > 0 && hasRubric;
+                  const prog = progressOf(a.id);
                   return (
                     <tr key={a.id}>
                       <td>{!a.imported && <input type="checkbox" name="assignmentId" value={a.id} />}</td>
@@ -106,8 +121,14 @@ export default async function CoursePage({
                       <td>
                         {!a.imported ? (
                           <span className="badge">Belum di-import</span>
+                        ) : ready && prog.finished ? (
+                          <span className="badge badge-ok">Sudah dinilai ✓</span>
+                        ) : ready && prog.running ? (
+                          <span className="badge badge-warn">Sedang dinilai ({prog.done}/{prog.total})</span>
+                        ) : ready && prog.done > 0 ? (
+                          <span className="badge badge-warn">Dinilai {prog.done}/{prog.total}</span>
                         ) : ready ? (
-                          <span className="badge badge-ok">Siap dinilai</span>
+                          <span className="badge">Siap dinilai</span>
                         ) : (
                           <span className="badge badge-warn">Imported</span>
                         )}
@@ -126,12 +147,56 @@ export default async function CoursePage({
                       </td>
                       <td>
                         <div className="flex flex-wrap items-center gap-3">
-                          {ready && <Link className="btn btn-primary" href={`/assignments/${a.id}/grades`}>Koreksi</Link>}
+                          {ready &&
+                            (prog.running ? (
+                              // Sedang dinilai: tombol menampilkan progres; diklik = hentikan (dengan konfirmasi).
+                              <ConfirmButton
+                                className="btn btn-danger group min-w-30"
+                                formAction={stopGrading.bind(null, a.id)}
+                                title="Hentikan koreksi?"
+                                confirmText="Hentikan"
+                                danger
+                                message={<>Koreksi <b className="text-ink">{a.title}</b> dihentikan. Nilai yang sudah keluar ({prog.done}/{prog.total}) tetap tersimpan; sisanya bisa dilanjutkan nanti.</>}
+                              >
+                                <span className="inline-flex items-center gap-2 group-hover:hidden">
+                                  <span className="spinner" aria-hidden="true" />
+                                  Menilai…
+                                </span>
+                                <span className="hidden group-hover:inline">■ Hentikan</span>
+                              </ConfirmButton>
+                            ) : prog.finished ? (
+                              <ConfirmButton
+                                className="btn"
+                                href={`/assignments/${a.id}/grades`}
+                                title="Koreksi ulang?"
+                                confirmText="Buka halaman nilai"
+                                message={<>Semua submission <b className="text-ink">{a.title}</b> sudah dinilai. Lanjut ke halaman nilai untuk mengoreksi ulang?</>}
+                              >
+                                Koreksi ulang
+                              </ConfirmButton>
+                            ) : (
+                              <ConfirmButton
+                                className="btn btn-primary"
+                                href={`/assignments/${a.id}/grades`}
+                                title={prog.done > 0 ? "Lanjutkan koreksi?" : "Mulai koreksi?"}
+                                confirmText="Ya, lanjut"
+                                message={<>Buka halaman koreksi untuk <b className="text-ink">{a.title}</b>?</>}
+                              >
+                                {prog.done > 0 ? "Lanjutkan" : "Koreksi"}
+                              </ConfirmButton>
+                            ))}
                           <Link className="btn" href={`/assignments/${a.id}/setup`}>Setup</Link>
                           {a.imported && (
-                            <button className="btn btn-danger" formAction={setImported.bind(null, a.id, false)}>
+                            <ConfirmButton
+                              className="btn btn-danger"
+                              formAction={setImported.bind(null, a.id, false)}
+                              title="Keluarkan tugas?"
+                              confirmText="Keluarkan"
+                              danger
+                              message={<><b className="text-ink">{a.title}</b> akan dikeluarkan dari daftar yang dinilai dan tidak tampil di Rekap SPS. Anda yakin?</>}
+                            >
                               Keluarkan
-                            </button>
+                            </ConfirmButton>
                           )}
                         </div>
                       </td>
@@ -150,7 +215,7 @@ export default async function CoursePage({
         </form>
       )}
 
-      <AutoRefresh active={recapSubs.some((s) => s.status === "processing")} />
+      <AutoRefresh active={progressRows.some((r) => r.status === "processing")} />
       <SpsRecap
         courseName={course.name}
         courseId={course.id}

@@ -43,6 +43,8 @@ export default async function SetupPage({ params }: { params: Promise<{ id: stri
           instructions: assignment.instructions ?? "",
           gradingNotes: assignment.gradingNotes ?? "",
           groupWork: assignment.groupWork,
+          floorScore: assignment.floorScore,
+          floorMinCriteria: assignment.floorMinCriteria,
           maxScore: assignment.maxScore,
         }}
         selectedMaterialIds={assignment.materials.map((m) => m.materialId)}

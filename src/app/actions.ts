@@ -191,6 +191,8 @@ export async function saveAssignmentSetup(assignmentId: string, formData: FormDa
         instructions: String(formData.get("instructions") ?? "") || null,
         gradingNotes: String(formData.get("gradingNotes") ?? "") || null,
         groupWork: formData.get("groupWork") === "on",
+        floorScore: Number(formData.get("floorScore")) || null,
+        floorMinCriteria: Number(formData.get("floorMinCriteria")) || null,
         maxScore: Number.isFinite(maxScore) && maxScore > 0 ? maxScore : 100,
         rubric: JSON.stringify(rubric),
         imported: true,
