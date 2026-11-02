@@ -36,7 +36,7 @@ export function SetupForm({
   selectedMaterialIds,
   initialRubric,
 }: {
-  assignment: { id: string; title: string; description: string; instructions: string; gradingNotes: string; groupWork: boolean; maxScore: number };
+  assignment: { id: string; title: string; description: string; instructions: string; gradingNotes: string; groupWork: boolean; floorScore: number | null; floorMinCriteria: number | null; maxScore: number };
   materials: MaterialOption[];
   selectedMaterialIds: string[];
   initialRubric: RubricCriterion[];
@@ -238,6 +238,19 @@ export function SetupForm({
             </span>
           </span>
         </label>
+
+        {/* Aturan khusus: hanya tampil di tugas yang sudah diberi nilai minimal (Pertemuan 9). */}
+        {assignment.floorScore != null && (
+          <>
+            <label className="mt-4">Nilai minimal</label>
+            <div className="flex flex-wrap items-center gap-2 text-[14px]">
+              Jika minimal
+              <input type="number" name="floorMinCriteria" min={1} defaultValue={assignment.floorMinCriteria ?? ""} className="max-w-20" aria-label="Jumlah komponen" />
+              komponen (kriteria berbobot &gt; 10%) ada, total nilai minimal
+              <input type="number" name="floorScore" min={0} step="any" defaultValue={assignment.floorScore} className="max-w-24" aria-label="Nilai minimal" />
+            </div>
+          </>
+        )}
       </div>
 
       <SubmitButton pendingText="Menyimpan...">Simpan Setup</SubmitButton>

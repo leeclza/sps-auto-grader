@@ -308,6 +308,21 @@ export async function materialsContext(materialIds: string[]) {
     .slice(0, 120_000);
 }
 
+/**
+ * Nilai minimal: bila minimal `minCriteria` komponen (kriteria berbobot > 10%) ADA (skor > 0),
+ * total tidak boleh di bawah `score`. Kriteria administratif (bobot ≤ 10%) tidak dihitung.
+ */
+export function applyFloor(
+  total: number,
+  rubric: RubricCriterion[],
+  scores: CriterionScore[],
+  floor: { score: number | null; minCriteria: number | null },
+) {
+  if (floor.score == null || !floor.minCriteria) return total;
+  const present = rubric.filter((c) => c.weight > 10 && (scores.find((x) => x.name === c.name)?.score ?? 0) > 0).length;
+  return present >= floor.minCriteria ? Math.max(total, floor.score) : total;
+}
+
 /** Skor akhir (skala maxScore) dari skor 0-100 per kriteria dan bobot rubrik. */
 export function totalScore(rubric: RubricCriterion[], scores: CriterionScore[], maxScore: number) {
   const totalWeight = rubric.reduce((s, c) => s + c.weight, 0) || 1;
@@ -429,7 +444,10 @@ async function gradeQueue(userId: string, assignmentId: string) {
   for (let sub = await nextInQueue(); sub; sub = await nextInQueue()) {
     try {
       const { scores, feedback, segments } = await gradeOne(auth, assignment, rubric, materi, sub);
-      const score = totalScore(rubric, scores, assignment.maxScore);
+      const score = applyFloor(totalScore(rubric, scores, assignment.maxScore), rubric, scores, {
+        score: assignment.floorScore,
+        minCriteria: assignment.floorMinCriteria,
+      });
       await db
         .update(submissions)
         .set({
