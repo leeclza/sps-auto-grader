@@ -3,25 +3,20 @@ import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { exportGradesToSheet, gradeAssignment, resetGrades, stopGrading } from "@/app/actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { FeedbackCell } from "@/components/FeedbackCell";
-import { SimilarityAction } from "@/components/SimilarityAction";
-import type { SimilarityMatch } from "@/lib/similarity";
+import { InfiniteRows } from "@/components/InfiniteRows";
 import { SubmitButton } from "@/components/SubmitButton";
 import { ResetGradesButton } from "@/components/ResetGradesButton";
 import { ToastOnMount } from "@/components/Toaster";
 import { db } from "@/db";
 import { assignments, submissions } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { byStudentName, sheetUrl, type CriterionScore } from "@/lib/grading";
+import { byStudentName, sheetUrl } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
+import { loadGradeRows } from "./load-rows";
+import { gradeRows, matchesOf, needsCheck } from "./rows";
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  pending: { label: "Belum dinilai", cls: "badge" },
-  processing: { label: "Sedang dinilai…", cls: "badge badge-warn" },
-  graded: { label: "Dinilai AI", cls: "badge badge-ok" },
-  reviewed: { label: "Dicek", cls: "badge badge-ok" },
-  error: { label: "Gagal", cls: "badge badge-err" },
-};
+// Baris tabel yang tampil di awal; sisanya diambil saat di-scroll.
+const PAGE_SIZE = 30;
 
 export default async function GradesPage({
   params,
@@ -33,14 +28,18 @@ export default async function GradesPage({
   const [user, { id }, { exported }] = await Promise.all([requireUser(), params, searchParams]);
   const assignment = await db.query.assignments.findFirst({
     where: eq(assignments.id, id),
-    // Kolom teks besar tidak ditampilkan di sini; jangan ikut diambil.
-    with: { course: true, submissions: { orderBy: asc(submissions.studentName), columns: { content: false, textSegments: false } } },
+    // Hanya kolom ringan untuk urutan & ringkasan; detail baris diambil per 30 (lihat ./rows).
+    with: {
+      course: true,
+      submissions: {
+        orderBy: asc(submissions.studentName),
+        columns: { id: true, studentId: true, studentName: true, status: true, finalScore: true, similarity: true, similarityDecision: true },
+      },
+    },
   });
   if (!assignment || assignment.course.userId !== user.id) notFound();
   const rubric = parseRubric(assignment.rubric);
   // Yang terdeteksi mirip & belum diputuskan naik ke paling atas, dikelompokkan per pasangan.
-  const matchesOf = (s: (typeof assignment.submissions)[number]): SimilarityMatch[] => (s.similarity ? JSON.parse(s.similarity) : []);
-  const needsCheck = (s: (typeof assignment.submissions)[number]) => !s.similarityDecision && matchesOf(s).length > 0;
   const groupKey = (s: (typeof assignment.submissions)[number]) =>
     [s.studentName ?? "", ...matchesOf(s).map((m) => m.withName)].sort((x, y) => x.localeCompare(y))[0];
   const byName = byStudentName;
@@ -57,6 +56,8 @@ export default async function GradesPage({
   const currentId = [...subs].sort(byStudentName).find((s) => s.status === "processing")?.id;
   const graded = subs.filter((s) => s.status === "graded" || s.status === "reviewed");
   const avg = graded.length ? graded.reduce((s, x) => s + (x.finalScore ?? 0), 0) / graded.length : null;
+  const orderedIds = subs.map((s) => s.id);
+  const firstRows = await gradeRows(assignment.id, orderedIds.slice(0, PAGE_SIZE), rubric, currentId ?? null);
 
   return (
     <>
@@ -123,57 +124,14 @@ export default async function GradesPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {subs.map((s) => {
-                    const scores: CriterionScore[] = s.breakdown ? JSON.parse(s.breakdown) : [];
-                    const st =
-                      s.status === "processing" && s.id !== currentId
-                        ? { label: "Menunggu antrean", cls: "badge" }
-                        : (STATUS[s.status] ?? { label: s.status, cls: "badge" });
-                    const matches = matchesOf(s);
-                    return (
-                      <tr key={s.id} className={needsCheck(s) ? "bg-warn-bg" : undefined}>
-                        <td>
-                          <div>{s.studentName ?? s.studentId}</div>
-                          <div className="text-[13px] text-muted">{s.studentEmail}{s.late && " · terlambat"}</div>
-                        </td>
-                        {rubric.map((c) => {
-                          const sc = scores.find((x) => x.name === c.name);
-                          return <td key={c.name} title={sc?.comment}>{sc ? sc.score : "—"}</td>;
-                        })}
-                        <td><b>{s.finalScore ?? "—"}</b></td>
-                        <td>
-                          <span className={st.cls}>{st.label}</span>
-                          {matches.length > 0 && (
-                            <div className="mt-1">
-                              {s.similarityDecision === "rejected" ? (
-                                <span className="badge badge-err">Mirip · ditolak</span>
-                              ) : s.similarityDecision === "accepted" ? (
-                                <span className="badge badge-ok">Mirip · diterima</span>
-                              ) : (
-                                <span className="badge badge-warn">Mirip, perlu dicek</span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          <SimilarityAction
-                            submissionId={s.id}
-                            student={s.studentName ?? s.studentId}
-                            matches={matches}
-                            decision={s.similarityDecision}
-                          />
-                        </td>
-                        <td>
-                          <FeedbackCell
-                            student={s.studentName ?? s.studentId}
-                            text={(s.status === "error" ? s.error : s.feedback) ?? ""}
-                            error={s.status === "error"}
-                            comments={scores}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {firstRows}
+                  <InfiniteRows
+                    ids={orderedIds.slice(PAGE_SIZE)}
+                    load={loadGradeRows.bind(null, assignment.id, currentId ?? null)}
+                    colSpan={rubric.length + 5}
+                    version={Date.now()}
+                    pageSize={PAGE_SIZE}
+                  />
                 </tbody>
               </table>
             </div>
