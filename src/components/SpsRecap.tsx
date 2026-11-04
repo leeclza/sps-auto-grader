@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { FeedbackCell } from "@/components/FeedbackCell";
+import { RecapSortSelect } from "@/components/RecapSortSelect";
 import { RecapTaskSelect } from "@/components/RecapTaskSelect";
 import type { assignments, submissions } from "@/db/schema";
 import { sheetUrl, type CriterionScore } from "@/lib/grading";
@@ -25,12 +26,14 @@ export function SpsRecap({
   tasks,
   assignment,
   submissions,
+  sort = "nim",
 }: {
   courseName: string;
   courseId: string;
   tasks: Assignment[];
   assignment: Assignment | undefined;
   submissions: Submission[];
+  sort?: "nim" | "nama";
 }) {
   if (!assignment) return null;
   const assignments = [assignment];
@@ -44,11 +47,15 @@ export function SpsRecap({
     if (!students.has(s.studentId)) students.set(s.studentId, { name: s.studentName ?? s.studentId, email: s.studentEmail });
     byKey.set(`${s.studentId}:${s.assignmentId}`, s);
   }
-  // Urut NIM; mahasiswa tanpa NIM di akhir, urut nama.
+  // Urut NIM (tanpa NIM di akhir, urut nama) atau urut abjad nama.
   const rows = [...students.entries()]
     .map(([id, st]) => [id, { ...st, nim: nimFromEmail(st.email) }] as const)
     .sort(([, a], [, b]) =>
-      a.nim && b.nim ? a.nim.localeCompare(b.nim, undefined, { numeric: true }) : a.nim ? -1 : b.nim ? 1 : a.name.localeCompare(b.name),
+      sort === "nama"
+        ? a.name.localeCompare(b.name, "id", { sensitivity: "base" })
+        : a.nim && b.nim
+          ? a.nim.localeCompare(b.nim, undefined, { numeric: true })
+          : a.nim ? -1 : b.nim ? 1 : a.name.localeCompare(b.name),
     );
   const groupBorder = "border-l border-line";
 
@@ -96,11 +103,10 @@ export function SpsRecap({
           />
         )}
       </div>
-      {tasks.length > 1 && (
-        <div className="mb-3">
-          <RecapTaskSelect courseId={courseId} tasks={tasks} selectedId={assignment.id} />
-        </div>
-      )}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        {tasks.length > 1 && <RecapTaskSelect courseId={courseId} tasks={tasks} selectedId={assignment.id} />}
+        {rows.length > 1 && <RecapSortSelect selected={sort} />}
+      </div>
         <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--line-strong) transparent" }}>
           <table className="w-full border-collapse">
             <thead>

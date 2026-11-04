@@ -22,9 +22,9 @@ export default async function CoursePage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>;
-  searchParams: Promise<{ saved?: string; rekap?: string }>;
+  searchParams: Promise<{ saved?: string; rekap?: string; urut?: string }>;
 }) {
-  const [user, { courseId }, { saved, rekap }] = await Promise.all([requireUser(), params, searchParams]);
+  const [user, { courseId }, { saved, rekap, urut }] = await Promise.all([requireUser(), params, searchParams]);
   // Semua query dijalankan paralel: tiap query ke Neon (HTTP) = satu round-trip.
   const [course, progressRows, allMaterials] = await Promise.all([
     db.query.courses.findFirst({
@@ -226,6 +226,7 @@ export default async function CoursePage({
         tasks={recapTasks}
         assignment={recapTask}
         submissions={recapSubs}
+        sort={urut === "nama" ? "nama" : "nim"}
       />
     </>
   );
