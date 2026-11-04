@@ -6,7 +6,7 @@ import { sheetUrl, type CriterionScore } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
 
 type Assignment = typeof assignments.$inferSelect;
-type Submission = typeof submissions.$inferSelect;
+type Submission = Omit<typeof submissions.$inferSelect, "content" | "textSegments">;
 
 /** Email kampus berformat nama.nim@...; ambil NIM dari angka sebelum "@". */
 /** Cocokkan nama kriteria tanpa peduli kapital/spasi (rubrik bisa diedit setelah dinilai). */
