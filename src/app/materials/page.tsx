@@ -12,14 +12,34 @@ import { MaterialStatusToasts } from "@/components/MaterialStatusToasts";
 import { SubmitButton } from "@/components/SubmitButton";
 import { requireUser } from "@/lib/auth";
 import Link from "next/link";
-import { asc, count, eq } from "drizzle-orm";
+import { asc, count, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { assignmentMaterials, courses, materials as materialsT } from "@/db/schema";
+import { assignmentMaterials, courses, materialPages, materials as materialsT } from "@/db/schema";
 
 const STATUS: Record<string, string> = { ready: "badge-ok", processing: "badge-warn", pending: "", error: "badge-err" };
 
+function loadMaterials() {
+  return Promise.all([
+    db.query.materials.findMany({
+      orderBy: [asc(materialsT.subject), asc(materialsT.meeting), asc(materialsT.createdAt)],
+    }),
+    db
+      .select({ materialId: assignmentMaterials.materialId, n: count() })
+      .from(assignmentMaterials)
+      .groupBy(assignmentMaterials.materialId),
+    // Jumlah karakter dihitung di database; isi teks materi tidak perlu dikirim ke server.
+    db
+      .select({ materialId: materialPages.materialId, chars: sql<number>`coalesce(sum(length(${materialPages.content})), 0)::int` })
+      .from(materialPages)
+      .groupBy(materialPages.materialId),
+  ]);
+}
+
 export default async function MaterialsPage() {
   const user = await requireUser();
+  // Data materi diambil bersamaan dengan cek course agar tidak menunggu dua kali.
+  const dataPromise = loadMaterials();
+  dataPromise.catch(() => {});
   const hasCourse = await db.query.courses.findFirst({ where: eq(courses.userId, user.id), columns: { id: true } });
   if (!hasCourse) {
     return (
@@ -37,18 +57,10 @@ export default async function MaterialsPage() {
       </>
     );
   }
-  const [rows, usage] = await Promise.all([
-    db.query.materials.findMany({
-      orderBy: [asc(materialsT.subject), asc(materialsT.meeting), asc(materialsT.createdAt)],
-      with: { pages: { columns: { content: true } } },
-    }),
-    db
-      .select({ materialId: assignmentMaterials.materialId, n: count() })
-      .from(assignmentMaterials)
-      .groupBy(assignmentMaterials.materialId),
-  ]);
+  const [rows, usage, sizes] = await dataPromise;
   const used = new Map(usage.map((u) => [u.materialId, u.n]));
-  const materials = rows.map((m) => ({ ...m, _count: { assignments: used.get(m.id) ?? 0 } }));
+  const charsOf = new Map(sizes.map((s) => [s.materialId, s.chars]));
+  const materials = rows.map((m) => ({ ...m, chars: charsOf.get(m.id) ?? 0, _count: { assignments: used.get(m.id) ?? 0 } }));
 
   const processing = materials.filter((m) => m.status === "processing").length;
   const failed = materials.filter((m) => m.status === "error").length;
@@ -121,7 +133,7 @@ export default async function MaterialsPage() {
       )}
       {materials.map((m) => {
         const concepts: string[] = m.keyConcepts ? JSON.parse(m.keyConcepts) : [];
-        const chars = m.pages.reduce((s, p) => s + p.content.length, 0);
+        const chars = m.chars;
         const processingNow = m.status === "processing";
         return (
           <div

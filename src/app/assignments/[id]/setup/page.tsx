@@ -8,23 +8,24 @@ import { DEFAULT_RUBRIC, parseRubric } from "@/lib/rubric";
 import { SetupForm } from "./SetupForm";
 
 export default async function SetupPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireUser();
-  const { id } = await params;
-  const assignment = await db.query.assignments.findFirst({
-    where: eq(assignments.id, id),
-    with: { course: true, materials: true },
-  });
+  const [user, { id }] = await Promise.all([requireUser(), params]);
+  const [assignment, materials] = await Promise.all([
+    db.query.assignments.findFirst({
+      where: eq(assignments.id, id),
+      with: { course: true, materials: true },
+    }),
+    db
+      .select({
+        id: materialsT.id,
+        title: materialsT.title,
+        subject: materialsT.subject,
+        meeting: materialsT.meeting,
+        status: materialsT.status,
+      })
+      .from(materialsT)
+      .orderBy(asc(materialsT.subject), asc(materialsT.meeting), asc(materialsT.title)),
+  ]);
   if (!assignment || assignment.course.userId !== user.id) notFound();
-  const materials = await db
-    .select({
-      id: materialsT.id,
-      title: materialsT.title,
-      subject: materialsT.subject,
-      meeting: materialsT.meeting,
-      status: materialsT.status,
-    })
-    .from(materialsT)
-    .orderBy(asc(materialsT.subject), asc(materialsT.meeting), asc(materialsT.title));
   const rubric = parseRubric(assignment.rubric);
 
   return (

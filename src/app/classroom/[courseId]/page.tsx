@@ -4,7 +4,7 @@ import { importAssignments, setImported, stopGrading, syncCourse } from "@/app/a
 import { SubmitButton } from "@/components/SubmitButton";
 import { ToastOnMount } from "@/components/Toaster";
 import { requireUser } from "@/lib/auth";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { assignments, courses, materials, submissions } from "@/db/schema";
 import { SpsRecap } from "@/components/SpsRecap";
@@ -14,6 +14,9 @@ import { MaterialPicker } from "@/components/MaterialPicker";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { parseRubric } from "@/lib/rubric";
 
+// Tanpa kolom teks besar (isi jawaban & segmen teks) yang tidak dipakai rekap.
+const { content: _content, textSegments: _segments, ...recapColumns } = getTableColumns(submissions);
+
 export default async function CoursePage({
   params,
   searchParams,
@@ -21,26 +24,31 @@ export default async function CoursePage({
   params: Promise<{ courseId: string }>;
   searchParams: Promise<{ saved?: string; rekap?: string }>;
 }) {
-  const user = await requireUser();
-  const { courseId } = await params;
-  const { saved, rekap } = await searchParams;
-  const course = await db.query.courses.findFirst({
-    where: and(eq(courses.id, courseId), eq(courses.userId, user.id)),
-    with: {
-      assignments: {
-        orderBy: [sql`${assignments.dueDate} desc nulls last`, asc(assignments.title)],
-        with: { materials: { with: { material: true } } },
+  const [user, { courseId }, { saved, rekap }] = await Promise.all([requireUser(), params, searchParams]);
+  // Semua query dijalankan paralel: tiap query ke Neon (HTTP) = satu round-trip.
+  const [course, progressRows, allMaterials] = await Promise.all([
+    db.query.courses.findFirst({
+      where: and(eq(courses.id, courseId), eq(courses.userId, user.id)),
+      with: {
+        assignments: {
+          orderBy: [sql`${assignments.dueDate} desc nulls last`, asc(assignments.title)],
+          with: { materials: { with: { material: true } } },
+        },
       },
-    },
-  });
+    }),
+    // Progres koreksi per tugas: selesai bila ada submission dan semuanya sudah dinilai.
+    db
+      .select({ assignmentId: submissions.assignmentId, status: submissions.status, n: sql<number>`count(*)::int` })
+      .from(submissions)
+      .innerJoin(assignments, eq(assignments.id, submissions.assignmentId))
+      .where(eq(assignments.courseId, courseId))
+      .groupBy(submissions.assignmentId, submissions.status),
+    db
+      .select({ id: materials.id, title: materials.title, subject: materials.subject, meeting: materials.meeting, status: materials.status })
+      .from(materials)
+      .orderBy(asc(materials.subject), asc(materials.meeting), asc(materials.title)),
+  ]);
   if (!course) notFound();
-  // Progres koreksi per tugas: selesai bila ada submission dan semuanya sudah dinilai.
-  const progressRows = await db
-    .select({ assignmentId: submissions.assignmentId, status: submissions.status, n: sql<number>`count(*)::int` })
-    .from(submissions)
-    .innerJoin(assignments, eq(assignments.id, submissions.assignmentId))
-    .where(eq(assignments.courseId, course.id))
-    .groupBy(submissions.assignmentId, submissions.status);
   const progressOf = (id: string) => {
     const rows = progressRows.filter((r) => r.assignmentId === id);
     const total = rows.reduce((s, r) => s + r.n, 0);
@@ -51,12 +59,8 @@ export default async function CoursePage({
   const recapTasks = course.assignments.filter((a) => a.imported && parseRubric(a.rubric).length > 0);
   const recapTask = recapTasks.find((a) => a.id === rekap) ?? recapTasks[0];
   const recapSubs = recapTask
-    ? await db.select().from(submissions).where(eq(submissions.assignmentId, recapTask.id))
+    ? await db.select(recapColumns).from(submissions).where(eq(submissions.assignmentId, recapTask.id))
     : [];
-  const allMaterials = await db
-    .select({ id: materials.id, title: materials.title, subject: materials.subject, meeting: materials.meeting, status: materials.status })
-    .from(materials)
-    .orderBy(asc(materials.subject), asc(materials.meeting), asc(materials.title));
   const neverSynced = course.studentCount === null;
 
   return (

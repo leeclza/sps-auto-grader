@@ -30,12 +30,11 @@ export default async function GradesPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ exported?: string }>;
 }) {
-  const user = await requireUser();
-  const { id } = await params;
-  const { exported } = await searchParams;
+  const [user, { id }, { exported }] = await Promise.all([requireUser(), params, searchParams]);
   const assignment = await db.query.assignments.findFirst({
     where: eq(assignments.id, id),
-    with: { course: true, submissions: { orderBy: asc(submissions.studentName) } },
+    // Kolom teks besar tidak ditampilkan di sini; jangan ikut diambil.
+    with: { course: true, submissions: { orderBy: asc(submissions.studentName), columns: { content: false, textSegments: false } } },
   });
   if (!assignment || assignment.course.userId !== user.id) notFound();
   const rubric = parseRubric(assignment.rubric);
