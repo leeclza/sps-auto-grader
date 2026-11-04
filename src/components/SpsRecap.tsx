@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { FeedbackCell } from "@/components/FeedbackCell";
+import { RecapTaskSelect } from "@/components/RecapTaskSelect";
 import type { assignments, submissions } from "@/db/schema";
 import { sheetUrl, type CriterionScore } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
@@ -96,18 +97,8 @@ export function SpsRecap({
         )}
       </div>
       {tasks.length > 1 && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          {tasks.map((t) => (
-            <Link
-              key={t.id}
-              href={`/classroom/${courseId}?rekap=${t.id}`}
-              scroll={false}
-              className={`btn ${t.id === assignment.id ? "btn-primary" : ""}`}
-              aria-current={t.id === assignment.id ? "page" : undefined}
-            >
-              {t.title}
-            </Link>
-          ))}
+        <div className="mb-3">
+          <RecapTaskSelect courseId={courseId} tasks={tasks} selectedId={assignment.id} />
         </div>
       )}
         <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--line-strong) transparent" }}>
