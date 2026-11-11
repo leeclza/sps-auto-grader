@@ -7,6 +7,8 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   serverExternalPackages: ["unpdf", "mammoth"],
   experimental: { serverActions: { bodySizeLimit: "20mb" } },
+  // Turbopack (next dev --turbopack): kompilasi per halaman jauh lebih cepat daripada webpack.
+  turbopack: { resolveAlias: { "@": "./src" } },
   webpack(config) {
     // Alias eksplisit: resolusi "paths" tsconfig kadang gagal di Windows (path dengan spasi).
     config.resolve.alias["@"] = path.join(root, "src");

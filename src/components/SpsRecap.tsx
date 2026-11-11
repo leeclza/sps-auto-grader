@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { DownloadCsvButton } from "@/components/DownloadCsvButton";
 import { FeedbackCell } from "@/components/FeedbackCell";
+import { RecapSortSelect } from "@/components/RecapSortSelect";
+import { RecapTaskSelect } from "@/components/RecapTaskSelect";
 import type { assignments, submissions } from "@/db/schema";
 import { sheetUrl, type CriterionScore } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
+import type { RosterEntry } from "@/lib/roster";
+import { CopyScoresButton } from "@/components/CopyScoresButton";
+import { saveSpsRoster } from "@/app/actions";
+import { SubmitButton } from "@/components/SubmitButton";
+
+export type RecapSort = "sps" | "nim" | "nama";
 
 type Assignment = typeof assignments.$inferSelect;
 type Submission = Omit<typeof submissions.$inferSelect, "content" | "textSegments">;
@@ -24,12 +32,16 @@ export function SpsRecap({
   tasks,
   assignment,
   submissions,
+  sort = "nim",
+  roster = [],
 }: {
   courseName: string;
   courseId: string;
   tasks: Assignment[];
   assignment: Assignment | undefined;
   submissions: Submission[];
+  sort?: RecapSort;
+  roster?: RosterEntry[];
 }) {
   if (!assignment) return null;
   const assignments = [assignment];
@@ -43,11 +55,28 @@ export function SpsRecap({
     if (!students.has(s.studentId)) students.set(s.studentId, { name: s.studentName ?? s.studentId, email: s.studentEmail });
     byKey.set(`${s.studentId}:${s.assignmentId}`, s);
   }
-  // Urut NIM; mahasiswa tanpa NIM di akhir, urut nama.
-  const rows = [...students.entries()]
-    .map(([id, st]) => [id, { ...st, nim: nimFromEmail(st.email) }] as const)
+  const all = [...students.entries()].map(([id, st]) => [id, { ...st, nim: nimFromEmail(st.email) }] as const);
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+  // Urut SPS: ikuti daftar yang di-paste dari spreadsheet (cocokkan NIM, lalu nama).
+  // Mahasiswa di daftar tanpa submission tetap jadi baris kosong supaya nilai yang disalin pas dengan baris spreadsheet.
+  const spsRows = (() => {
+    if (sort !== "sps" || !roster.length) return null;
+    const used = new Set<string>();
+    const list = roster.map((r, i) => {
+      const hit = all.find(([id, st]) => !used.has(id) && st.nim === r.nim) ?? all.find(([id, st]) => !used.has(id) && norm(st.name) === norm(r.name));
+      if (hit) used.add(hit[0]);
+      return hit ? ([hit[0], { ...hit[1], nim: hit[1].nim || r.nim }] as const) : ([`sps:${i}`, { name: r.name, email: null, nim: r.nim }] as const);
+    });
+    return { list, extra: all.filter(([id]) => !used.has(id)) };
+  })();
+  // Urut NIM (tanpa NIM di akhir, urut nama) atau urut abjad nama.
+  const rows = spsRows ? [...spsRows.list, ...spsRows.extra] : [...all]
     .sort(([, a], [, b]) =>
-      a.nim && b.nim ? a.nim.localeCompare(b.nim, undefined, { numeric: true }) : a.nim ? -1 : b.nim ? 1 : a.name.localeCompare(b.name),
+      sort === "nama"
+        ? a.name.localeCompare(b.name, "id", { sensitivity: "base" })
+        : a.nim && b.nim
+          ? a.nim.localeCompare(b.nim, undefined, { numeric: true })
+          : a.nim ? -1 : b.nim ? 1 : a.name.localeCompare(b.name),
     );
   const groupBorder = "border-l border-line";
 
@@ -88,6 +117,15 @@ export function SpsRecap({
           <div className="text-[13px] text-muted">{courseName}</div>
         </div>
         <span className="flex-1" />
+        {spsRows && (
+          <CopyScoresButton
+            label={assignment.title}
+            values={spsRows.list.map(([id]) => {
+              const s = byKey.get(`${id}:${assignment.id}`);
+              return s?.finalScore ?? "";
+            })}
+          />
+        )}
         {rows.length > 0 && (
           <DownloadCsvButton
             rows={csvRows}
@@ -95,21 +133,30 @@ export function SpsRecap({
           />
         )}
       </div>
-      {tasks.length > 1 && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          {tasks.map((t) => (
-            <Link
-              key={t.id}
-              href={`/classroom/${courseId}?rekap=${t.id}`}
-              scroll={false}
-              className={`btn ${t.id === assignment.id ? "btn-primary" : ""}`}
-              aria-current={t.id === assignment.id ? "page" : undefined}
-            >
-              {t.title}
-            </Link>
-          ))}
-        </div>
-      )}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        {tasks.length > 1 && <RecapTaskSelect courseId={courseId} tasks={tasks} selectedId={assignment.id} />}
+        {rows.length > 1 && <RecapSortSelect selected={sort} hasRoster={roster.length > 0} />}
+        {spsRows && spsRows.extra.length > 0 && (
+          <span className="badge badge-warn" title={spsRows.extra.map(([, st]) => st.name).join(", ")}>
+            {spsRows.extra.length} mahasiswa tidak ada di daftar SPS (di bawah, tidak ikut disalin)
+          </span>
+        )}
+      </div>
+      <details className="mb-3">
+        <summary className="cursor-pointer text-[13px] text-muted">
+          Daftar urutan SPS {roster.length ? `(${roster.length} mahasiswa)` : "(belum diisi)"}
+        </summary>
+        <form action={saveSpsRoster.bind(null, courseId)} className="mt-2 grid gap-2">
+          <textarea
+            name="roster"
+            rows={6}
+            defaultValue={roster.map((r, i) => `${i + 1}\t${r.nim}\t${r.name}`).join("\n")}
+            placeholder={"Copy kolom No, NIM, NAMA dari spreadsheet SPS lalu paste di sini"}
+            className="font-mono text-[13px]"
+          />
+          <div><SubmitButton pendingText="Menyimpan...">Simpan urutan SPS</SubmitButton></div>
+        </form>
+      </details>
         <div className="overflow-x-auto rounded-card border border-line bg-surface shadow-sm" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--line-strong) transparent" }}>
           <table className="w-full border-collapse">
             <thead>

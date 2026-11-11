@@ -4,7 +4,7 @@
   "private": true,
   "description": "SPS Auto Grader - penilaian tugas otomatis (Google Classroom, dll) dengan Gemini AI berbasis materi kuliah",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "db:push": "drizzle-kit push",

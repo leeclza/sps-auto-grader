@@ -134,6 +134,14 @@
       file:mr-3 file:cursor-pointer file:rounded-[7px] file:border file:border-line-strong file:bg-surface-2
       file:px-3 file:py-1.5 file:text-[13px] file:text-ink hover:file:bg-line;
   }
+  /* Panah dropdown sendiri supaya bisa diberi jarak dari tepi kanan. */
+  select {
+    appearance: none;
+    padding-right: 38px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 13px center;
+  }
   input[type="checkbox"] { @apply size-4 accent-primary; }
   textarea { @apply min-h-[100px] resize-y; }
 

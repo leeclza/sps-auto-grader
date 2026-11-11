@@ -76,6 +76,8 @@ export const courses = pgTable(
     teacherNames: text("teacherNames"),
     studentCount: integer("studentCount"),
     link: text("link"),
+    // Urutan mahasiswa di spreadsheet SPS (JSON: [{ nim, name }]), di-paste manual oleh dosen.
+    spsRoster: text("spsRoster"),
     createdAt: ts("createdAt"),
     syncedAt: ts("syncedAt").notNull().defaultNow(),
   },

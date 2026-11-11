@@ -12,6 +12,7 @@ import { exportToSheet, gradeProcessing, materialsContext, pullSubmissions, samp
 import { extractFromFile, extractFromUrl, guessMeeting, learnMaterial } from "@/lib/materials";
 import { gcrProvider } from "@/lib/providers/gcr";
 import { parseRubric, type RubricCriterion } from "@/lib/rubric";
+import { parseRoster } from "@/lib/roster";
 
 async function ownedCourse(userId: string, courseId: string) {
   const course = await db.query.courses.findFirst({ where: and(eq(courses.id, courseId), eq(courses.userId, userId)) });
@@ -160,6 +161,18 @@ export async function setAssignmentMaterials(assignmentId: string, materialIds: 
       : []),
   ]);
   revalidatePath(`/classroom/${a.courseId}`);
+}
+
+/** Simpan urutan mahasiswa SPS dari teks yang di-paste (kolom No / NIM / Nama dari spreadsheet). */
+export async function saveSpsRoster(courseId: string, formData: FormData) {
+  const user = await requireUser();
+  await ownedCourse(user.id, courseId);
+  const roster = parseRoster(String(formData.get("roster") ?? ""));
+  await db
+    .update(courses)
+    .set({ spsRoster: roster.length ? JSON.stringify(roster) : null })
+    .where(eq(courses.id, courseId));
+  revalidatePath(`/classroom/${courseId}`);
 }
 
 export async function setImported(assignmentId: string, imported: boolean) {
