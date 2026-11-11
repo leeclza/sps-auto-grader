@@ -13,6 +13,7 @@ import { CheckedSubmitButton } from "@/components/CheckedSubmitButton";
 import { MaterialPicker } from "@/components/MaterialPicker";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { parseRubric } from "@/lib/rubric";
+import { readRoster } from "@/lib/roster";
 
 // Tanpa kolom teks besar (isi jawaban & segmen teks) yang tidak dipakai rekap.
 const { content: _content, textSegments: _segments, ...recapColumns } = getTableColumns(submissions);
@@ -62,6 +63,7 @@ export default async function CoursePage({
     ? await db.select(recapColumns).from(submissions).where(eq(submissions.assignmentId, recapTask.id))
     : [];
   const neverSynced = course.studentCount === null;
+  const roster = readRoster(course.spsRoster);
 
   return (
     <>
@@ -226,7 +228,9 @@ export default async function CoursePage({
         tasks={recapTasks}
         assignment={recapTask}
         submissions={recapSubs}
-        sort={urut === "nama" ? "nama" : "nim"}
+        roster={roster}
+        // Default: urut SPS bila daftar urutan sudah diisi.
+        sort={urut === "nama" || urut === "nim" ? urut : roster.length ? "sps" : "nim"}
       />
     </>
   );

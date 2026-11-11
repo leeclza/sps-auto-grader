@@ -2,8 +2,8 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-/** Dropdown urutan baris rekap nilai SPS; navigasi lewat query ?urut= (nim | nama). */
-export function RecapSortSelect({ selected }: { selected: "nim" | "nama" }) {
+/** Dropdown urutan baris rekap nilai SPS; navigasi lewat query ?urut= (sps | nim | nama). */
+export function RecapSortSelect({ selected, hasRoster }: { selected: "sps" | "nim" | "nama"; hasRoster: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -17,6 +17,7 @@ export function RecapSortSelect({ selected }: { selected: "nim" | "nama" }) {
       }}
       aria-label="Urutkan mahasiswa"
     >
+      {hasRoster && <option value="sps">Urut SPS (spreadsheet)</option>}
       <option value="nim">Urut NIM</option>
       <option value="nama">Urut abjad (nama)</option>
     </select>
