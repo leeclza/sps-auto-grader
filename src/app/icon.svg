@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="#e5262b" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Lingkaran coretan tangan, ujungnya sedikit tumpang tindih -->
+  <path d="M27 57C13 55 5 44 6 31 7 16 20 6 34 7c14 1 24 12 24 25 0 13-10 23-23 25" stroke-width="4"/>
+  <!-- Huruf A -->
+  <path d="M15 50L28 17 39 50" stroke-width="5"/>
+  <path d="M18 39L44 31" stroke-width="4.5"/>
+  <!-- Tanda + -->
+  <path d="M46 10v13M40 16.5h12" stroke-width="4.5"/>
+</svg>
