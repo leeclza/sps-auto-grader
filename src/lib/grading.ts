@@ -481,7 +481,7 @@ async function gradeQueue(userId: string, assignmentId: string) {
 // ---------- Spreadsheet SPS ----------
 
 /** Selisih waktu dalam bentuk "2 hari 3 jam" / "45 menit". */
-function lateDuration(ms: number) {
+export function lateDuration(ms: number) {
   if (ms <= 0) return "";
   const min = Math.ceil(ms / 60_000);
   const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;

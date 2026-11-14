@@ -10,7 +10,7 @@ import { ToastOnMount } from "@/components/Toaster";
 import { db } from "@/db";
 import { assignments, submissions } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { byStudentName, sheetUrl } from "@/lib/grading";
+import { byStudentName, lateDuration, sheetUrl } from "@/lib/grading";
 import { parseRubric } from "@/lib/rubric";
 import { loadGradeRows } from "./load-rows";
 import { gradeRows, matchesOf, needsCheck } from "./rows";
@@ -33,7 +33,7 @@ export default async function GradesPage({
       course: true,
       submissions: {
         orderBy: asc(submissions.studentName),
-        columns: { id: true, studentId: true, studentName: true, status: true, finalScore: true, similarity: true, similarityDecision: true },
+        columns: { id: true, studentId: true, studentName: true, studentEmail: true, status: true, finalScore: true, similarity: true, similarityDecision: true, late: true, submittedAt: true },
       },
     },
   });
@@ -56,6 +56,10 @@ export default async function GradesPage({
   const currentId = [...subs].sort(byStudentName).find((s) => s.status === "processing")?.id;
   const graded = subs.filter((s) => s.status === "graded" || s.status === "reviewed");
   const avg = graded.length ? graded.reduce((s, x) => s + (x.finalScore ?? 0), 0) / graded.length : null;
+  // Yang terlambat mengumpulkan (menurut GCR), paling telat di atas.
+  const due = assignment.dueDate?.getTime();
+  const lateMs = (s: (typeof subs)[number]) => (due && s.submittedAt ? s.submittedAt.getTime() - due : 0);
+  const lateSubs = subs.filter((s) => s.late).sort((a, b) => lateMs(b) - lateMs(a));
   const orderedIds = subs.map((s) => s.id);
   const firstRows = await gradeRows(assignment.id, orderedIds.slice(0, PAGE_SIZE), rubric, currentId ?? null);
 
@@ -78,6 +82,28 @@ export default async function GradesPage({
         {flagged > 0 && <> · <b className="text-warn">{flagged} mirip, perlu dicek</b></>}
         {processing > 0 && <> · <b>{processing} sedang dinilai</b> (±{Math.ceil((processing * 12) / 60)} menit, halaman refresh otomatis)</>}
       </p>
+
+      {lateSubs.length > 0 && (
+        <details open className="mb-5 rounded-card border border-warn/30 bg-warn-bg px-4 py-3 text-warn">
+          <summary className="cursor-pointer font-semibold">
+            ⚠ {lateSubs.length} mahasiswa terlambat mengumpulkan
+            {assignment.dueDate && (
+              <span className="font-normal"> (tenggat {assignment.dueDate.toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" })} WIB)</span>
+            )}
+          </summary>
+          <ul className="mt-2 grid gap-x-6 gap-y-1 text-[13.5px] text-ink sm:grid-cols-2">
+            {lateSubs.map((s) => (
+              <li key={s.id} className="flex justify-between gap-3">
+                <span className="truncate">
+                  {s.studentName ?? s.studentId}
+                  <span className="text-muted"> · {s.studentEmail?.match(/(\d+)@/)?.[1] ?? ""}</span>
+                </span>
+                <span className="shrink-0 font-mono text-warn">{lateMs(s) > 0 ? `+${lateDuration(lateMs(s))}` : "telat"}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {rubric.length === 0 ? (
         <div className="card text-muted">
